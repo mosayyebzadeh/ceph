@@ -74,7 +74,6 @@ unsigned int hash_slot(const char *key, int keylen) {
 */
 
 void RGWLFUDAPolicy::connectClient(){
-  ldout(cct,10) <<__func__<<": " << __LINE__ <<  dendl;
 
   int dirMasterCount = cct->_conf->rgw_directory_master_count;
   std::string address = cct->_conf->rgw_filter_address;
@@ -90,11 +89,9 @@ void RGWLFUDAPolicy::connectClient(){
     }
   }
 
-  ldout(cct,10) <<__func__<<": " << __LINE__ <<  dendl;
   cpp_redis::connect_state status;
   try {
     for (int i = 0; i < dirMasterCount; i++){
-      ldout(cct,10) <<__func__<<": " << __LINE__ <<  dendl;
       client_conn[i].connect(host[i], port[i],
 	[&status](const std::string &host, std::size_t port, cpp_redis::connect_state statusC) {
 	  if (statusC == cpp_redis::connect_state::dropped) {
@@ -109,12 +106,10 @@ void RGWLFUDAPolicy::connectClient(){
   catch(std::exception &e) {
     ldout(cct,10) << __func__ <<"Redis client connected failed!" << dendl;
   }
-  ldout(cct,10) <<__func__<<": " << __LINE__ <<  dendl;
 }
 
 int RGWLFUDAPolicy::findClient(std::string key){
   int slot = 0;
-  ldout(cct,10) <<__func__<<": " << __LINE__ <<  dendl;
   slot = hash_slot(key.c_str(), key.size());
   int dirMasterCount = cct->_conf->rgw_directory_master_count;
   int slotQuota = 16384/dirMasterCount; 
@@ -133,7 +128,6 @@ int RGWLFUDAPolicy::findClient(std::string key){
   }
 
   for (int i = 0; i < dirMasterCount; i++){
-    ldout(cct,10) <<__func__<<": " << __LINE__ << ": slot is: " << slot << " slotQuota is: " << slotQuota << dendl;
     if (slot < (slotQuota*(i+1))){
       return i;
     }
@@ -206,7 +200,6 @@ int RGWLFUDAPolicy::exist_field(std::string key, std::string field)
 
 int RGWLFUDAPolicy::set(std::string key, std::string field, std::string value)
 {
-  ldout(cct, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key is: " << key << dendl;
 
   int client_index = findClient(key);
   if (client_index < 0){
@@ -226,14 +219,12 @@ int RGWLFUDAPolicy::set(std::string key, std::string field, std::string value)
   });
 
   client_conn[client_index].sync_commit(std::chrono::milliseconds(300));
-  ldout(cct, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " RESULT is: " << result << dendl;
 
   return result;
 }
 
 std::string RGWLFUDAPolicy::get(std::string key, std::string field)
 {
-  ldout(cct, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key is: " << key << dendl;
 
   int client_index = findClient(key);
   if (client_index < 0){
@@ -253,7 +244,6 @@ std::string RGWLFUDAPolicy::get(std::string key, std::string field)
   });
 
   client_conn[client_index].sync_commit(std::chrono::milliseconds(300));
-  ldout(cct, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " result is: " << result << dendl;
 
   return result;
 }
@@ -322,25 +312,19 @@ int RGWLFUDAPolicy::getMinAvgWeight(const DoutPrefixProvider* dpp, int *minAvgWe
 
 int RGWLFUDAPolicy::age_sync(const DoutPrefixProvider* dpp, optional_yield y) {
 
-  ldpp_dout(dpp, 10) << "AMIN " << __func__ << " " << __LINE__ << dendl;
   std::string result;
   std::string p_name = "lfuda";
   std::string f_name = "age";
   result = get(p_name, f_name);
-  ldpp_dout(dpp, 10) << "AMIN " << __func__ << " " << __LINE__ << " result: " << result << dendl;
 
   if (age > std::stoi(result) || result.empty()) { /* Set new maximum age */
-  ldpp_dout(dpp, 10) << "AMIN " << __func__ << " " << __LINE__ << dendl;
     if (set(p_name, f_name, std::to_string(age)) == 0){
-  ldpp_dout(dpp, 10) << "AMIN " << __func__ << " " << __LINE__ << dendl;
       return 0;
     }
     else
       return -1;
   } else {
-  ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << dendl;
     age = std::stoi(result);
-  ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << dendl;
     return 0;
   }
 }
@@ -349,7 +333,6 @@ int RGWLFUDAPolicy::local_weight_sync(const DoutPrefixProvider* dpp, optional_yi
   int result1 = 0, flag = 0; 
   int result2 = 0; 
    
-  ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << dendl;
   std::string p_name = "lfuda";
   std::string f_name;
 
@@ -361,12 +344,10 @@ int RGWLFUDAPolicy::local_weight_sync(const DoutPrefixProvider* dpp, optional_yi
 
     f_name = "minLocalWeights_size";
     resp1 = get(p_name, f_name);
-    ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << dendl;
 	
     float minAvgWeight = std::stof(resp0) / std::stof(resp1);
 
     if ((static_cast<float>(weightSum) / static_cast<float>(entries_map.size())) < minAvgWeight) { /* Set new minimum weight */
-      ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << dendl;
       flag = 1;
       p_name = "lfuda";
       f_name = "minLocalWeights_sum";
@@ -384,7 +365,6 @@ int RGWLFUDAPolicy::local_weight_sync(const DoutPrefixProvider* dpp, optional_yi
     }
   }
 
-  ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << dendl;
   p_name = dpp->get_cct()->_conf->rgw_local_cache_address;
   f_name = "avgLocalWeight_sum";  
   result2 = set(p_name, f_name, std::to_string(weightSum));
@@ -392,9 +372,6 @@ int RGWLFUDAPolicy::local_weight_sync(const DoutPrefixProvider* dpp, optional_yi
   f_name = "avgLocalWeight_size";
   result2 += set(p_name, f_name, std::to_string(entries_map.size()));
   
-  ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << " flag is: " << flag << dendl;
-  ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << " result1 is: " << result1 << dendl;
-  ldpp_dout(dpp, 20) << "AMIN " << __func__ << " " << __LINE__ << " result2 is: " << result2 << dendl;
   if (flag == 0)
     return result2;
   else
@@ -513,6 +490,7 @@ int RGWLFUDAPolicy::sendRemote(const DoutPrefixProvider* dpp, CacheBlockCpp *vic
 }	
 
 int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optional_yield y) {
+  int ret = -1;
   uint64_t freeSpace = cacheDriver->get_free_space(dpp);
 
   ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " free space is " << freeSpace << dendl;
@@ -526,16 +504,19 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
       return -ENOENT;
     }
 
-    const std::lock_guard l(lfuda_lock);
+    //const std::lock_guard l(lfuda_lock);
+    std::unique_lock<std::mutex> l(lfuda_lock);
     std::string key = entries_heap.top()->key;
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key is " << key << dendl;
     auto it = entries_map.find(key);
     if (it == entries_map.end()) {
       delete victim;
+      l.unlock();
       return -ENOENT;
     }
     else{//victim block is getting read, no suitable block to evict
       if (it->second->read_flag == 1){
+        ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " Error: the Block is getting read!" << dendl;
  	/*
 	//it->second->localWeight += victim->globalWeight;
         (*it->second->handle)->localWeight += 1; //it->second->localWeight;
@@ -546,12 +527,15 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 	continue;
 	*/
         delete victim;
+        l.unlock();
         return -ENOENT;
       }
     }
 
-    //int avgWeight = weightSum / entries_map.size();
-    int avgWeight;
+    int avgWeight = weightSum / entries_map.size();
+
+    //int avgWeight;
+/* pushing to remote: FIXME: AMIN uncomment
     std::string remoteCacheAddress;
     if (getMinAvgWeight(dpp, &avgWeight, &remoteCacheAddress, y) < 0){
       ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): Could not retrieve min average weight." << dendl;
@@ -561,7 +545,8 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " remote cache address is " << remoteCacheAddress << dendl;
 
-    if (victim->hostsList.size() == 1 && victim->hostsList[0] == dpp->get_cct()->_conf->rgw_local_cache_address) { /* Last copy */
+
+    if (victim->hostsList.size() == 1 && victim->hostsList[0] == dpp->get_cct()->_conf->rgw_local_cache_address) { // Last copy 
       ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       if (victim->globalWeight) {
 	it->second->localWeight += victim->globalWeight;
@@ -591,7 +576,7 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 	if (it->second->dirty == true)
 	  remoteKey = "D_"+key; //TODO: AMIN: we should not delete dirty data. it should be cleaned first.
 	
-	/*
+	
         ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " size is " << size << dendl;
         ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " remote cache address is " << remoteCacheAddress << dendl;
     	cacheDriver->get(dpp, key, 0, it->second->len, out_bl, obj_attrs, y);
@@ -607,11 +592,12 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
           return ret;
         }
         ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-	*/
+	
       }
       ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
     }
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
+
+
 
     victim->globalWeight += it->second->localWeight;
     if (int ret = dir->update_field(victim, "globalWeight", std::to_string(victim->globalWeight), y) < 0) {
@@ -619,60 +605,51 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
       return ret;
     }
 
+*/ // END pushing to remote
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-    if (int ret = dir->remove_host(victim, dpp->get_cct()->_conf->rgw_local_cache_address, y) < 0) {
+
+    auto localWeight = it->second->localWeight;
+    erase(dpp, key, y);
+    l.unlock();
+
+    bool deleted = false;
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
+    if (ret = dir->remove_host(victim, dpp->get_cct()->_conf->rgw_local_cache_address, y) < 0) {
       delete victim;
       return ret;
+    } else if (ret == 1){
+      deleted = true;
     }
-
-
-/* FIXME: AMIN Remove, just for testing */
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-  CacheBlockCpp* victim1 = new CacheBlockCpp();
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-  victim1->cacheObj.bucketName = victim->cacheObj.bucketName;
-  victim1->cacheObj.objName = victim->cacheObj.objName;
-  victim1->blockID = victim->blockID;
-  victim1->size = victim->size;
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-
-  if (int ret = dir->get(victim1, y) < 0) {
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " FAILED!" << dendl;
-    delete victim1;
-    return ret;
-  }
-
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " HOST SIZE is : " << victim1->hostsList.size() << dendl;
-  if (victim1->hostsList.size() > 0){
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " TEST: KEY: " << victim1->blockID << " hosts: " << victim1->hostsList[0] << dendl;
-  }
-  else{
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " there is NO HOST!" << dendl;
-  }
-  
-  delete victim1;
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-
-/* END FIXME */
-
-
-
-
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-    delete victim;
 
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
     if (int ret = cacheDriver->delete_data(dpp, key, y) < 0) 
       return ret;
 
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
+    if (deleted) { // last data block
+      std::string head_oid_in_cache = victim->cacheObj.bucketName + "_" + victim->version + "_" + victim->cacheObj.objName;
+      delete victim;
+      ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): Deleting head object " << head_oid_in_cache << "." << dendl;
+      // delete head object in cache
+      if ((ret = cacheDriver->delete_data(dpp, head_oid_in_cache, null_yield)) == 0) { 
+	if (!(ret = erase(dpp, head_oid_in_cache, null_yield))) { // TODO: Is a lock needed here when one is in the erase method already?
+	  ldpp_dout(dpp, 0) << "Failed to delete head policy entry for: " << head_oid_in_cache << ", ret=" << ret << dendl;
+	  return -EINVAL;
+	}
+      } else {
+	ldpp_dout(dpp, 0) << "Failed to delete head object for: " << head_oid_in_cache << ", ret=" << ret << dendl;
+	return -EINVAL;
+      }
+    }
+
+
     ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): Block " << key << " has been evicted." << dendl;
 
-    weightSum = (avgWeight * entries_map.size()) - it->second->localWeight;
+    weightSum = (avgWeight * entries_map.size()) - localWeight;
 
-    age = std::max(it->second->localWeight, age);
+    age = std::max(localWeight, age);
 
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-    erase(dpp, key, y);
     freeSpace = cacheDriver->get_free_space(dpp);
   }
   
@@ -690,31 +667,24 @@ void RGWLFUDAPolicy::update(const DoutPrefixProvider* dpp, std::string& key, uin
   if (entry != nullptr) { 
     localWeight = entry->localWeight + age;
   }  
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
 
   erase(dpp, key, y);
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
  
   LFUDAEntry *e = new LFUDAEntry(key, offset, len, version, dirty, creationTime, user, localWeight);
   if (offset != 0 || len != 0){ //not a head object 
     handle_type handle = entries_heap.push(e);
     e->set_handle(handle);
   }
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
   entries_map.emplace(key, e);
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
 
   std::string oid_in_cache = key;
   if (dirty == true)
     oid_in_cache = "D_"+key;
 
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
   if (cacheDriver->set_attr(dpp, oid_in_cache, "user.rgw.localWeight", std::to_string(localWeight), y) < 0) 
     ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): CacheDriver set_attr method failed." << dendl;
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
 
   weightSum += ((localWeight < 0) ? 0 : localWeight);
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
 }
 
 void RGWLFUDAPolicy::updateObj(const DoutPrefixProvider* dpp, std::string& key, std::string version, bool dirty, uint64_t size, time_t creationTime, const rgw_user user, std::string& etag, optional_yield y)
@@ -761,7 +731,6 @@ void RGWLFUDAPolicy::set_read_flag(const DoutPrefixProvider* dpp, std::string ke
 {
   auto it = entries_map.find(key);
   if (it == entries_map.end()) {
-    ldout(cct, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key: " << key  << " does not exist!" << dendl;
     return;
   }
   

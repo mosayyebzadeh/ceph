@@ -651,6 +651,19 @@ int RGWBlockDirectory::remove_host(CacheBlockCpp* block, std::string value, opti
       old_val.erase(0, 1);
     ldout(cct,20) << __func__ << ": " << __LINE__ << " New blockHosts value is: " << old_val << dendl;
 
+    if (old_val.length() == 0) {
+	client_conn[client_index].del(keys, [&result](cpp_redis::reply &reply){
+	  if  (reply.is_integer())
+	  {
+	    result = reply.as_integer();}
+	  });
+	client_conn[client_index].sync_commit(std::chrono::milliseconds(300));
+        if (result < 0)
+	  return result;
+	else
+	  return 1; //for head block deletion
+    }
+    
 
     client_conn[client_index].hset(key, field, old_val, [&result](cpp_redis::reply &reply){
       if (reply.is_integer()){

@@ -36,6 +36,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/redis/connection.hpp>
+#include <boost/crc.hpp>
 
 namespace rgw::d4n {
   //class PolicyDriver;
@@ -106,6 +107,14 @@ class D4NFilterDriver : public FilterDriver {
     rgw::d4n::RGWBlockDirectory* get_block_dir_cpp() { return blockDirCpp; }
     rgw::d4n::RGWObjectDirectory* get_obj_dir_cpp() { return objectDirCpp; }
     rgw::d4n::RGWPolicyDriver* get_policy_driver() { return policyDriverCpp; }
+
+
+    //FIXME: AMIN: crc 
+    //BEGIN
+    //<file_name, offset>, crc>
+    std::map<std::pair<std::string, uint64_t>, boost::crc_32_type> crc_checksum;
+    int crc_cal(const DoutPrefixProvider *dpp, std::string oid);
+    //END
 };
 
 class D4NFilterUser : public FilterUser {
@@ -210,7 +219,8 @@ class D4NFilterObject : public FilterObject {
         std::unique_ptr<rgw::Aio> aio;
 	uint64_t offset = 0; // next offset to write to client
         rgw::AioResultList completed; // completed read results, sorted by offset
-        std::unordered_map<uint64_t, std::pair<uint64_t,uint64_t>> blocks_info;
+        //std::unordered_map<uint64_t, std::pair<uint64_t,uint64_t>> blocks_info;
+        std::map<uint64_t, std::pair<uint64_t,uint64_t>> blocks_info;
 
         bool last_part_done = false;
 	uint64_t last_adjusted_ofs = -1; 
