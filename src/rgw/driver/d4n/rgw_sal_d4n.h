@@ -213,14 +213,14 @@ class D4NFilterObject : public FilterObject {
 
       private:
 	char cached_local = 0;
-	//std::string cacheLocation; 
 	RGWGetDataCB* client_cb;
 	std::unique_ptr<D4NFilterGetCB> cb;
         std::unique_ptr<rgw::Aio> aio;
 	uint64_t offset = 0; // next offset to write to client
         rgw::AioResultList completed; // completed read results, sorted by offset
-        //std::unordered_map<uint64_t, std::pair<uint64_t,uint64_t>> blocks_info;
         std::map<uint64_t, std::pair<uint64_t,uint64_t>> blocks_info;
+        std::map<off_t, std::tuple<off_t, bool, bufferlist>> read_data; //received data from local and remote cache
+        std::set<off_t> submitted_data; //submitted data to either local or remote cache
 
         bool last_part_done = false;
 	uint64_t last_adjusted_ofs = -1; 
@@ -231,10 +231,11 @@ class D4NFilterObject : public FilterObject {
 
 	int flush(const DoutPrefixProvider* dpp, rgw::AioResultList&& results, optional_yield y);
 	int lsvdFlush(const DoutPrefixProvider* dpp, rgw::AioResultList&& results, optional_yield y);
-	//int remoteFlush(const DoutPrefixProvider* dpp, bufferlist bl, std::string creationTime, optional_yield y);
-	int remoteFlush(const DoutPrefixProvider* dpp, bufferlist bl, uint64_t ofs, uint64_t len, uint64_t read_ofs, std::string creationTime, optional_yield y);
+	//int remoteFlush(const DoutPrefixProvider* dpp, bufferlist bl, uint64_t ofs, uint64_t len, uint64_t read_ofs, std::string creationTime, optional_yield y);
 	void cancel();
 	int drain(const DoutPrefixProvider* dpp, optional_yield y);
+	int allFlush(const DoutPrefixProvider* dpp, optional_yield y);
+	int allDrain(const DoutPrefixProvider* dpp, optional_yield y);
 	int lsvdDrain(const DoutPrefixProvider* dpp, optional_yield y);
     };
 
@@ -345,7 +346,7 @@ class D4NFilterWriter : public FilterWriter {
                        rgw_zone_set *zones_trace, bool *canceled,
                        const req_context& rctx,
                        uint32_t flags) override;
-   bool is_atomic() { return atomic; };
+   bool is_atomic() { return atomic; }
    int sendRemote(const DoutPrefixProvider* dpp, rgw::d4n::CacheObjectCpp *object, std::string remoteCacheAddress, std::string key, bufferlist* out_bl, optional_yield y);
    const DoutPrefixProvider* dpp() { return save_dpp; } 
 };
