@@ -634,7 +634,7 @@ int RGWBlockDirectory::remove_host(CacheBlockCpp* block, std::string value, opti
       client_conn[client_index].sync_commit(std::chrono::milliseconds(300));
     }
     catch(std::exception &e) {
-      return 0;
+      return -1;
     }
 
     ldout(cct,20) << __func__ << ": " << __LINE__ << " Prev blockHosts value is: " << old_val << dendl;
@@ -647,8 +647,17 @@ int RGWBlockDirectory::remove_host(CacheBlockCpp* block, std::string value, opti
 
     size_t host_loc = old_val.find(value);
     old_val.erase(host_loc, value.length()); 
+    ldout(cct,20) << __func__ << ": " << __LINE__  << dendl;
+
     if (old_val.find('_') == 0)
       old_val.erase(0, 1);
+
+    ldout(cct,20) << __func__ << ": " << __LINE__  << dendl;
+
+    if (!old_val.empty() && old_val.back() == '_') {
+      old_val.pop_back();
+    }
+
     ldout(cct,20) << __func__ << ": " << __LINE__ << " New blockHosts value is: " << old_val << dendl;
 
     if (old_val.length() == 0) {
@@ -663,14 +672,14 @@ int RGWBlockDirectory::remove_host(CacheBlockCpp* block, std::string value, opti
 	else
 	  return 1; //for head block deletion
     }
-    
-
-    client_conn[client_index].hset(key, field, old_val, [&result](cpp_redis::reply &reply){
-      if (reply.is_integer()){
-        result = reply.as_integer();
-      }
-    });
-    client_conn[client_index].sync_commit(std::chrono::milliseconds(300));	  
+    else{
+      client_conn[client_index].hset(key, field, old_val, [&result](cpp_redis::reply &reply){
+        if (reply.is_integer()){
+          result = reply.as_integer();
+        }
+      });
+      client_conn[client_index].sync_commit(std::chrono::milliseconds(300));	  
+    }
   }
 
   ldout(cct,20) << __func__ << ": " << __LINE__ << " Result is: " << result << dendl;

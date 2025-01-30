@@ -303,6 +303,7 @@ rgw::Aio::OpFunc SSDDriver::ssd_cache_read_op(const DoutPrefixProvider *dpp, opt
 
     using namespace boost::asio;
     spawn::yield_context yield = y.get_yield_context();
+
     async_completion<spawn::yield_context, void()> init(yield);
     auto ex = get_associated_executor(init.completion_handler);
 

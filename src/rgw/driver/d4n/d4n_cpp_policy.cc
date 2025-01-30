@@ -504,12 +504,15 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
       return -ENOENT;
     }
 
-    //const std::lock_guard l(lfuda_lock);
     std::unique_lock<std::mutex> l(lfuda_lock);
-    std::string key = entries_heap.top()->key;
+
+    //std::string key = entries_heap.top()->key;
+    std::string key = victim->cacheObj.bucketName + "_" + victim->version + "_" + victim->cacheObj.objName + "_" +  std::to_string(victim->blockID) + "_" +   std::to_string(victim->size);
+
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key is " << key << dendl;
     auto it = entries_map.find(key);
     if (it == entries_map.end()) {
+      ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key not found in map " << key << dendl;
       delete victim;
       l.unlock();
       return -ENOENT;
@@ -517,20 +520,13 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
     else{//victim block is getting read, no suitable block to evict
       if (it->second->read_flag == 1){
         ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " Error: the Block is getting read!" << dendl;
- 	/*
-	//it->second->localWeight += victim->globalWeight;
-        (*it->second->handle)->localWeight += 1; //it->second->localWeight;
-	entries_heap.increase(it->second->handle);
-        ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " localWeight: " << (*(entries_map.find(key))->second->handle)->localWeight << dendl;
-        ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " top is: " << entries_heap.top()->key << dendl;
-        delete victim;
-	continue;
-	*/
         delete victim;
         l.unlock();
         return -ENOENT;
       }
     }
+    
+    set_read_flag(dpp, key, 2); //it is getting deleted.
 
     int avgWeight = weightSum / entries_map.size();
 
@@ -606,26 +602,45 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
     }
 
 */ // END pushing to remote
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " key: " << key << dendl;
 
     auto localWeight = it->second->localWeight;
-    erase(dpp, key, y);
+    _erase(dpp, key, y);
     l.unlock();
 
     bool deleted = false;
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-    if (ret = dir->remove_host(victim, dpp->get_cct()->_conf->rgw_local_cache_address, y) < 0) {
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " key: " << key << dendl;
+    ret = dir->remove_host(victim, dpp->get_cct()->_conf->rgw_local_cache_address, y);
+    if (ret < 0) {
       delete victim;
       return ret;
     } else if (ret == 1){
       deleted = true;
     }
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " remote_host ret: " << ret << dendl;
 
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
-    if (int ret = cacheDriver->delete_data(dpp, key, y) < 0) 
+    /* AMIN: FIXME: to test hostsList, remove it. */
+    ret = dir->get(victim, y);
+    if (ret < 0){
+      ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " dir->get ret: " << ret << dendl;
       return ret;
+    }
+    ldpp_dout(dpp, 20) << "AMIN:" << __func__ << "(): " << __LINE__ << " ofs: " << victim->blockID << " hostsList: " << victim->hostsList << dendl;
+    /* AMIN END */
 
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " before delete data: " << key << dendl;
+    ret = cacheDriver->delete_data(dpp, key, y);
+    if (ret < 0){
+      delete victim;
+      return ret;
+    }
+
+    
+
+    delete victim;
+
+    /* AMIN: FIXME: we need to delete head objects
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " after delete data: " << key << dendl;
     if (deleted) { // last data block
       std::string head_oid_in_cache = victim->cacheObj.bucketName + "_" + victim->version + "_" + victim->cacheObj.objName;
       delete victim;
@@ -641,7 +656,9 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 	return -EINVAL;
       }
     }
+    AMIN END  */
 
+    //set_read_flag(dpp, key, 0); //FIXME: AMIN: is this line needed? 1-16-25
 
     ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): Block " << key << " has been evicted." << dendl;
 
@@ -659,7 +676,7 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 
 void RGWLFUDAPolicy::update(const DoutPrefixProvider* dpp, std::string& key, uint64_t offset, uint64_t len, std::string version, bool dirty, time_t creationTime, const rgw_user user, optional_yield y)
 {
-  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ <<  dendl;
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key is: " << key <<  dendl;
   using handle_type = boost::heap::fibonacci_heap<LFUDAEntry*, boost::heap::compare<EntryComparator<LFUDAEntry>>>::handle_type;
   const std::lock_guard l(lfuda_lock);
   int localWeight = age;
@@ -668,21 +685,21 @@ void RGWLFUDAPolicy::update(const DoutPrefixProvider* dpp, std::string& key, uin
     localWeight = entry->localWeight + age;
   }  
 
-  erase(dpp, key, y);
+  _erase(dpp, key, y);
  
   LFUDAEntry *e = new LFUDAEntry(key, offset, len, version, dirty, creationTime, user, localWeight);
-  if (offset != 0 || len != 0){ //not a head object 
-    handle_type handle = entries_heap.push(e);
-    e->set_handle(handle);
-  }
+  handle_type handle = entries_heap.push(e);
+  e->set_handle(handle);
   entries_map.emplace(key, e);
 
+/*
   std::string oid_in_cache = key;
   if (dirty == true)
     oid_in_cache = "D_"+key;
 
   if (cacheDriver->set_attr(dpp, oid_in_cache, "user.rgw.localWeight", std::to_string(localWeight), y) < 0) 
     ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): CacheDriver set_attr method failed." << dendl;
+*/
 
   weightSum += ((localWeight < 0) ? 0 : localWeight);
 }
@@ -697,6 +714,30 @@ void RGWLFUDAPolicy::updateObj(const DoutPrefixProvider* dpp, std::string& key, 
 }
 
 
+bool RGWLFUDAPolicy::_erase(const DoutPrefixProvider* dpp, const std::string& key, optional_yield y)
+{
+  auto p = entries_map.find(key);
+  if (p == entries_map.end()) {
+    return false;
+  }
+
+  weightSum -= ((p->second->localWeight < 0) ? 0 : p->second->localWeight);
+
+  entries_heap.erase(p->second->handle);
+  delete p->second;
+  p->second = nullptr;
+  entries_map.erase(p);
+  
+  return true;
+}
+
+bool RGWLFUDAPolicy::erase(const DoutPrefixProvider* dpp, const std::string& key, optional_yield y)
+{
+  const std::lock_guard l(lfuda_lock);
+  return _erase(dpp, key, y);
+}
+
+/*
 bool RGWLFUDAPolicy::erase(const DoutPrefixProvider* dpp, const std::string& key, optional_yield y)
 {
   auto p = entries_map.find(key);
@@ -713,6 +754,7 @@ bool RGWLFUDAPolicy::erase(const DoutPrefixProvider* dpp, const std::string& key
 
   return true;
 }
+*/
 
 bool RGWLFUDAPolicy::eraseObj(const DoutPrefixProvider* dpp, const std::string& key, optional_yield y)
 {

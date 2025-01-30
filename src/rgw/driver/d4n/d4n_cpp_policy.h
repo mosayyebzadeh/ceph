@@ -178,6 +178,7 @@ class RGWLFUDAPolicy : public RGWCachePolicy {
     virtual void updateObj(const DoutPrefixProvider* dpp, std::string& key, std::string version, bool dirty, uint64_t size, time_t creationTime, const rgw_user user, std::string& etag, optional_yield y) override;
     virtual bool erase(const DoutPrefixProvider* dpp, const std::string& key, optional_yield y) override;
     virtual bool eraseObj(const DoutPrefixProvider* dpp, const std::string& key, optional_yield y) override;
+    virtual bool _erase(const DoutPrefixProvider* dpp, const std::string& key, optional_yield y);
     virtual void cleaning(const DoutPrefixProvider* dpp) override;
     virtual void set_read_flag(const DoutPrefixProvider* dpp, std::string key, int value) override;
     virtual int get_read_flag(const DoutPrefixProvider* dpp, std::string key) override;
