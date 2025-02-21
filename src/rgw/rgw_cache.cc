@@ -165,15 +165,19 @@ void ObjectCache::put(const DoutPrefixProvider *dpp, const string& name, ObjectC
 
   touch_lru(dpp, name, entry, entry.lru_iter);
 
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
   target.status = info.status;
 
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
   if (info.status < 0) {
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
     target.flags = 0;
     target.xattrs.clear();
     target.data.clear();
     return;
   }
 
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
   if (cache_info) {
     cache_info->cache_locator = name;
     cache_info->gen = entry.gen;
@@ -188,6 +192,8 @@ void ObjectCache::put(const DoutPrefixProvider *dpp, const string& name, ObjectC
     target.meta = info.meta;
   else if (!(info.flags & CACHE_FLAG_MODIFY_XATTRS))
     target.flags &= ~CACHE_FLAG_META; // non-meta change should reset meta
+
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
 
   if (info.flags & CACHE_FLAG_XATTRS) {
     target.xattrs = info.xattrs;
@@ -206,12 +212,14 @@ void ObjectCache::put(const DoutPrefixProvider *dpp, const string& name, ObjectC
       target.xattrs[iter->first] = iter->second;
     }
   }
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
 
   if (info.flags & CACHE_FLAG_DATA)
     target.data = info.data;
 
   if (info.flags & CACHE_FLAG_OBJV)
     target.version = info.version;
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
 }
 
 // WARNING: This function /must not/ be modified to cache a
@@ -275,9 +283,11 @@ void ObjectCache::touch_lru(const DoutPrefixProvider *dpp, const string& name, O
     lru_iter = lru.end();
     --lru_iter;
   }
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
 
   lru_counter++;
   entry.lru_promotion_ts = lru_counter;
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): "  << __LINE__ << dendl;
 }
 
 void ObjectCache::remove_lru(const string& name,

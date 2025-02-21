@@ -342,25 +342,75 @@ rgw::AioResultList SSDDriver::put_async(const DoutPrefixProvider* dpp, optional_
     return aio->get(r_obj, ssd_cache_write_op(dpp, y, this, bl, len, attrs, key), cost, id);
 }
 
+
 int SSDDriver::delete_data(const DoutPrefixProvider* dpp, const::std::string& key, optional_yield y)
 {
+ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     std::string location = partition_info.location + key;
     efs::path filePath = location;
-    uint64_t size = efs::file_size(filePath);
+    //uint64_t size = efs::file_size(filePath);
 
 
+ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     if (!efs::remove(location)) {
         ldpp_dout(dpp, 0) << "ERROR: delete_data::remove has failed to remove the file: " << location << dendl;
         return -EIO;
     }
 
+ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     //AMIN
     efs::space_info space = efs::space(partition_info.location);
     this->free_space = space.available;
     //this->free_space += size;
 
+ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     return 0;
 }
+
+/*
+int SSDDriver::delete_data(const DoutPrefixProvider* dpp, const::std::string& key, optional_yield y)
+{
+    std::string dir_path, file_name;
+    parse_key(dpp, partition_info.location, key, dir_path, file_name);
+    std::string location = get_file_path(dpp, dir_path, file_name);
+    ldpp_dout(dpp, 20) << "INFO: delete_data::file to remove: " << location << dendl;
+    std::error_code ec;
+
+    //Remove file
+    if (!efs::remove(location, ec)) {
+        ldpp_dout(dpp, 0) << "ERROR: delete_data::remove has failed to remove the file: " << location << dendl;
+        return -ec.value();
+    }
+
+    //Remove directory if empty, removes object directory
+    if (efs::is_empty(dir_path, ec)) {
+        ldpp_dout(dpp, 20) << "INFO: delete_data::object directory to remove: " << dir_path << " :" << ec.value() << dendl;
+        if (!efs::remove(dir_path, ec)) {
+            //another version could have been written between the check and removal, hence not returning error from here
+            ldpp_dout(dpp, 0) << "ERROR: delete_data::remove has failed to remove the directory: " << dir_path  << " :" << ec.value() << dendl;
+        }
+    }
+    auto pos = dir_path.find_last_of('/');
+    if (pos != std::string::npos) {
+        dir_path.erase(pos, (dir_path.length() - pos));
+
+        //Remove bucket directory
+        if (efs::is_empty(dir_path, ec)) {
+            ldpp_dout(dpp, 20) << "INFO: delete_data::bucket directory to remove: " << dir_path << " :" << ec.value() << dendl;
+            if (!efs::remove(dir_path, ec)) {
+                //another object could have been written between the check and removal, hence not returning error from here
+                ldpp_dout(dpp, 0) << "ERROR: delete_data::remove has failed to remove the directory: " << dir_path << " :" << ec.value() << dendl;
+            }
+        }
+    }
+
+    efs::space_info space = efs::space(partition_info.location);
+    this->free_space = space.available;
+
+    return 0;
+}
+*/
+
 
 int SSDDriver::rename(const DoutPrefixProvider* dpp, const::std::string& oldKey, const::std::string& newKey, optional_yield y)
 {

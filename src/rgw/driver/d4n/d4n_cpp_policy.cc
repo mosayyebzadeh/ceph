@@ -528,10 +528,9 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
     
     set_read_flag(dpp, key, 2); //it is getting deleted.
 
-    int avgWeight = weightSum / entries_map.size();
+    //int avgWeight = weightSum / entries_map.size();
 
-    //int avgWeight;
-/* pushing to remote: FIXME: AMIN uncomment
+    int avgWeight;
     std::string remoteCacheAddress;
     if (getMinAvgWeight(dpp, &avgWeight, &remoteCacheAddress, y) < 0){
       ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): Could not retrieve min average weight." << dendl;
@@ -547,7 +546,7 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
       if (victim->globalWeight) {
 	it->second->localWeight += victim->globalWeight;
         (*it->second->handle)->localWeight = it->second->localWeight;
-	entries_heap.increase(it->second->handle);
+	entries_heap.decrease(it->second->handle);
 
 	if (int ret = cacheDriver->set_attr(dpp, key, "user.rgw.localWeight", std::to_string(it->second->localWeight), y) < 0) { 
 	  delete victim;
@@ -601,7 +600,6 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
       return ret;
     }
 
-*/ // END pushing to remote
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " key: " << key << dendl;
 
     auto localWeight = it->second->localWeight;
