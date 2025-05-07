@@ -119,6 +119,18 @@ void RGWOp_RemoteD4N_Get::execute(optional_yield y) {
       len = strtoull(v[5].c_str(), &end,10);
       oid_in_cache = bucketName + "_" + version + "_" + objectName + "_" + to_string(offset) + "_" + to_string(len);
     }
+    else if (v.size() >= 7){ //version has "_"
+      bucketName = v[1];
+      for (size_t i = 2; i < v.size() - 3; ++i) {
+        if (i > 2) 
+	  version += "_";
+        version += v[i];
+      }
+      objectName = v[v.size() - 3];     
+      offset = strtoull(v[v.size() - 2].c_str(), &end,10);
+      len = strtoull(v[v.size() - 1].c_str(), &end,10);
+      oid_in_cache = bucketName + "_" + version + "_" + objectName + "_" + to_string(offset) + "_" + to_string(len);
+    }
     else{
       ldpp_dout(s, 5) << __func__ << ": " << __LINE__ <<  ": Remote Object name is not in right format!" << dendl;
       op_ret = -1;
@@ -141,7 +153,20 @@ void RGWOp_RemoteD4N_Get::execute(optional_yield y) {
       len = strtoull(v[4].c_str(), &end,10);
       oid_in_cache = bucketName + "_" + version + "_" + objectName + "_" + to_string(offset) + "_" + to_string(len);
     }
+    else if (v.size() >= 6){ //version has "_"
+      bucketName = v[0];
+      for (size_t i = 1; i < v.size() - 3; ++i) {
+        if (i > 1) 
+	  version += "_";
+        version += v[i];
+      }
+      objectName = v[v.size() - 3];     
+      offset = strtoull(v[v.size() - 2].c_str(), &end,10);
+      len = strtoull(v[v.size() - 1].c_str(), &end,10);
+      oid_in_cache = bucketName + "_" + version + "_" + objectName + "_" + to_string(offset) + "_" + to_string(len);
+    }
     else{
+
       ldpp_dout(s, 5) << __func__ << ": " << __LINE__ <<  ": Remote Object name is not in right format!" << dendl;
       op_ret = -1;
       return;
@@ -232,7 +257,7 @@ void RGWOp_RemoteD4N_Put::execute(optional_yield y) {
   //all the info  including offset, ... should come from remote cache as the key: bucket_version_object_ofs_length 
   std::vector<std::string> v = get_remoted4n_objectInfo(s, '_');
   if (v.empty()){
-    ldpp_dout(s, 5) << __func__ << ": Remote Object name is not in right format!" << dendl;
+    ldpp_dout(s, 5) << __func__ << ": " << __LINE__ << " Remote Object name is not in right format!" << dendl;
     op_ret = -1;
     return;
   }
@@ -259,8 +284,19 @@ void RGWOp_RemoteD4N_Put::execute(optional_yield y) {
       offset = strtoull(v[4].c_str(), &end,10);
       len = strtoull(v[5].c_str(), &end,10);
     }
+    else if (v.size() >= 7){ //version has "_"
+      bucketName = v[1];
+      for (size_t i = 2; i < v.size() - 3; ++i) {
+        if (i > 2) 
+	  version += "_";
+        version += v[i];
+      }
+      objectName = v[v.size() - 3];     
+      offset = strtoull(v[v.size() - 2].c_str(), &end,10);
+      len = strtoull(v[v.size() - 1].c_str(), &end,10);
+    }
     else{
-      ldpp_dout(s, 5) << __func__ << ": Remote Object name is not in right format!" << dendl;
+      ldpp_dout(s, 5) << __func__ << ": " << __LINE__ << " Remote Object name is not in right format!" << dendl;
       op_ret = -1;
       return;
     }
@@ -281,8 +317,19 @@ void RGWOp_RemoteD4N_Put::execute(optional_yield y) {
       offset = strtoull(v[3].c_str(), &end,10);
       len = strtoull(v[4].c_str(), &end,10);
     }
+    else if (v.size() >= 6){ //version has "_"
+      bucketName = v[0];
+      for (size_t i = 1; i < v.size() - 3; ++i) {
+        if (i > 1) 
+	  version += "_";
+        version += v[i];
+      }
+      objectName = v[v.size() - 3];     
+      offset = strtoull(v[v.size() - 2].c_str(), &end,10);
+      len = strtoull(v[v.size() - 1].c_str(), &end,10);
+    }
     else{
-      ldpp_dout(s, 5) << __func__ << ": Remote Object name is not in right format!" << dendl;
+      ldpp_dout(s, 5) << __func__ << ": " << __LINE__ << " Remote Object name is not in right format!" << dendl;
       op_ret = -1;
       return;
     }
@@ -405,7 +452,7 @@ void RGWOp_RemoteD4N_Delete::execute(optional_yield y) {
   string key;
   std::vector<std::string> v = get_remoted4n_objectInfo(s, '_');
   if (v.empty()){
-    ldpp_dout(s, 5) << __func__ << ": Remote Object name is not in right format!" << dendl;
+    ldpp_dout(s, 5) << __func__ << ": " << __LINE__ << " Remote Object name is not in right format!" << dendl;
     op_ret = -1;
     return;
   }

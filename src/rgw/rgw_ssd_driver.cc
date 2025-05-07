@@ -103,7 +103,7 @@ int SSDDriver::initialize(const DoutPrefixProvider* dpp)
 
 int SSDDriver::put(const DoutPrefixProvider* dpp, const std::string& key, const bufferlist& bl, uint64_t len, const rgw::sal::Attrs& attrs, optional_yield y)
 {
-    ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): key=" << key << dendl;
+    //ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): key=" << key << dendl;
 
     if (this->free_space < len){
 	ldpp_dout(dpp, 10) << "SSDCache: " << __func__ << "(): No Space available!" << dendl;
@@ -125,7 +125,6 @@ int SSDDriver::put(const DoutPrefixProvider* dpp, const std::string& key, const 
     efs::space_info space = efs::space(partition_info.location);
     this->free_space = space.available;
     //this->free_space -= len;
-    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " FREE SPACE is: " << free_space << dendl;
     return 0;
 }
 

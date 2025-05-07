@@ -404,20 +404,61 @@ CacheBlockCpp* RGWLFUDAPolicy::get_victim_block(const DoutPrefixProvider* dpp, o
   /* Get victim cache block */
   std::string key = entries_heap.top()->key;
   
-  ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() key is: " << key << dendl;
+  ldpp_dout(dpp, 10) << "AMIN " << __func__ << ": " << __LINE__ << ": key is: " << key << dendl;
 
   CacheBlockCpp* victim = new CacheBlockCpp();
 
+  std::stringstream ss(key);
+  std::string token;
+  std::vector<std::string> parts;
+
+  while (std::getline(ss, token, '_')) {
+    parts.push_back(token);
+  }
+
+  if (parts.size() < 5) {
+    ldpp_dout(dpp, 10) << __func__ << "() victim oid format is wrong: " << key  << dendl;
+    return nullptr;
+  }
+
+  std::string bucketName = parts[0];
+  std::string objectName = parts[parts.size() - 3];
+  std::string blockId = parts[parts.size() - 2];
+  std::string size = parts[parts.size() - 1];
+
+  // Join version parts from index 1 to size() - 4
+  std::string version;
+  for (size_t i = 1; i < parts.size() - 3; ++i) {
+    if (i > 1) version += "_";
+    version += parts[i];
+  }
+
+  victim->cacheObj.bucketName = bucketName;
+  ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() bucket is: " << victim->cacheObj.bucketName << dendl;
+  victim->cacheObj.objName = objectName;
+  ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() object is: " << victim->cacheObj.objName << dendl;
+  victim->blockID = entries_heap.top()->offset;
+  victim->size = entries_heap.top()->len;
+  ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() blockID is: " << victim->blockID << dendl;
+  ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() size is: " << victim->size << dendl;
+
+
+  /*
   victim->cacheObj.bucketName = key.substr(0, key.find('_')); 
   ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() bucket is: " << victim->cacheObj.bucketName << dendl;
   key.erase(0, key.find('_') + 1); //bucket
+  ldpp_dout(dpp, 10) << "AMIN " << __func__ << ": " << __LINE__ << ": key is: " << key << dendl;
+  while (key.find('_') == 0)
+    key.erase(0, key.find('_') + 1); //extra "_"
   key.erase(0, key.find('_') + 1); //version
+  ldpp_dout(dpp, 10) << "AMIN " << __func__ << ": " << __LINE__ << ": key is: " << key << dendl;
   victim->cacheObj.objName = key.substr(0, key.find('_'));
   ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() object is: " << victim->cacheObj.objName << dendl;
   victim->blockID = entries_heap.top()->offset;
   victim->size = entries_heap.top()->len;
   ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() blockID is: " << victim->blockID << dendl;
   ldpp_dout(dpp, 10) << "AMIN " << __func__ << "() size is: " << victim->size << dendl;
+  */
 
   if (dir->get(victim, y) < 0) {
     return nullptr;
@@ -506,8 +547,8 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 
     std::unique_lock<std::mutex> l(lfuda_lock);
 
-    //std::string key = entries_heap.top()->key;
-    std::string key = victim->cacheObj.bucketName + "_" + victim->version + "_" + victim->cacheObj.objName + "_" +  std::to_string(victim->blockID) + "_" +   std::to_string(victim->size);
+    std::string key = entries_heap.top()->key;
+    //std::string key = victim->cacheObj.bucketName + "_" + victim->version + "_" + victim->cacheObj.objName + "_" +  std::to_string(victim->blockID) + "_" +   std::to_string(victim->size);
 
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " key is " << key << dendl;
     auto it = entries_map.find(key);
@@ -530,6 +571,7 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 
     //int avgWeight = weightSum / entries_map.size();
 
+    //FIXME: remoteCacheAddress is getting overriden by a new cache. it should be updates instead.
     int avgWeight;
     std::string remoteCacheAddress;
     if (getMinAvgWeight(dpp, &avgWeight, &remoteCacheAddress, y) < 0){
@@ -537,8 +579,12 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
       delete victim;
       return -ENOENT;
     }
+    //remove this after the fix
+    remoteCacheAddress = dpp->get_cct()->_conf->rgw_remote_cache_address;
 
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " remote cache address is " << remoteCacheAddress << dendl;
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " victim host list size is " << victim->hostsList.size() << dendl;
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " victim host list is " << victim->hostsList[0] << dendl;
 
 
     if (victim->hostsList.size() == 1 && victim->hostsList[0] == dpp->get_cct()->_conf->rgw_local_cache_address) { // Last copy 
@@ -560,6 +606,9 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
         }
       }
 
+  //FIXME: AMIN uncomment this
+     /*
+     if (!remoteCacheAddress.empty()){
       if (it->second->localWeight > avgWeight) {
         ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 	// TODO: push victim block to remote cache
@@ -589,7 +638,9 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
         ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
 	
       }
-      ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
+     }
+    */
+     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
     }
 
 

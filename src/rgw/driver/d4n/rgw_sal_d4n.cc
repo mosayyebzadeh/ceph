@@ -431,6 +431,7 @@ int D4NFilterObject::calculate_version(const DoutPrefixProvider* dpp, optional_y
   }
 
   this->set_object_version(version);
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " version is: " << version <<  dendl;
 
   return 0;
 }
@@ -459,6 +460,7 @@ int D4NFilterObject::set_head_obj_dir_entry(const DoutPrefixProvider* dpp, optio
       .blockID = 0,
       .version = this->get_object_version(),
       .size = 0,
+      .hostsList = { dpp->get_cct()->_conf->rgw_local_cache_address },
       };
 
     ret = blockDir->get(&block, y);
@@ -498,6 +500,7 @@ int D4NFilterObject::set_head_obj_dir_entry(const DoutPrefixProvider* dpp, optio
       .blockID = 0,
       .version = this->get_object_version(),
       .size = 0,
+      .hostsList = { dpp->get_cct()->_conf->rgw_local_cache_address },
     };
 
     ret = blockDir->get(&version_block, y);
@@ -636,6 +639,7 @@ int D4NFilterObject::get_obj_attrs(optional_yield y, const DoutPrefixProvider* d
     if (ret == 0) {
       ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " version stored in update method is: " << this->get_object_version() << dendl;
       time_t creationTime = ceph::real_clock::to_time_t(this->get_mtime());
+      //FIXME: AMIN comment the next line for remote copy 5/5/2025
       this->driver->get_policy_driver()->get_cache_policy()->update(dpp, head_oid_in_cache, 0, 0, version, false, creationTime, this->get_bucket()->get_owner(), y);
       ret = set_head_obj_dir_entry(dpp, y, is_latest_version);
       if (ret < 0) {
@@ -979,6 +983,7 @@ int D4NFilterObject::D4NFilterReadOp::prepare(optional_yield y, const DoutPrefix
     if (ret < 0 || version.empty()) {
       ldpp_dout(dpp, 10) << "D4NFilterObject::" << __func__ << "(): version could not be calculated." << dendl;
     }
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " version is: " << version <<  dendl;
 
     bufferlist bl;
     head_oid_in_cache = source->get_bucket()->get_name() + "_" + version + "_" + source->get_name();
@@ -1040,6 +1045,7 @@ int D4NFilterObject::D4NFilterReadOp::prepare(optional_yield y, const DoutPrefix
       } else {
         prefix = source->get_bucket()->get_name() + "_" + version + "_" + source->get_key().get_oid();
       }
+      ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " prefix is: " << prefix <<  dendl;
       source->set_prefix(prefix);
       cached_local = 1; //it is cached
       return 0;
@@ -1135,8 +1141,10 @@ int D4NFilterObject::D4NFilterReadOp::flush(const DoutPrefixProvider* dpp, rgw::
 
     //setting read_flag = 0
     if (source->driver->get_policy_driver()->get_cache_policy()->exist_key(oid_in_cache)) {
-      ldpp_dout(dpp, 20) << "AMIN:DEBUG " << __func__ << "(): " <<  __LINE__ << " oid_in_cache is: " << oid_in_cache << dendl;
-      source->driver->get_policy_driver()->get_cache_policy()->set_read_flag(dpp, oid_in_cache, 0);
+      if (source->driver->get_policy_driver()->get_cache_policy()->get_read_flag(dpp, oid_in_cache) == 1){ //if it was getting read
+        ldpp_dout(dpp, 20) << "AMIN:DEBUG " << __func__ << "(): " <<  __LINE__ << " oid_in_cache is: " << oid_in_cache << dendl;
+        source->driver->get_policy_driver()->get_cache_policy()->set_read_flag(dpp, oid_in_cache, 0);
+      }
     }
 
   }
@@ -1181,7 +1189,10 @@ int D4NFilterObject::D4NFilterReadOp::allFlush(const DoutPrefixProvider* dpp, op
 
     if (std::get<1>(len_remote_data_tuple) == true){ //remote block. write to local cache
       ldpp_dout(dpp, 20) << "AMIN:DEBUG " << __func__ << "(): " <<  __LINE__ << " Reading from REMOTE ofs: " << ofs << dendl;
-    /* FIXME: uncomment AMIN 01-03-25 */
+    /* FIXME: AMIN 04-21-25 
+        this is for testing reading from remote without writing to local
+	UNCOMMENT after experiments. */
+      /*   
       
       ldpp_dout(dpp, 20) << "AMIN:DEBUG " << __func__ << "(): " <<  __LINE__ << " ofs: " << ofs << dendl;
 
@@ -1242,8 +1253,9 @@ int D4NFilterObject::D4NFilterReadOp::allFlush(const DoutPrefixProvider* dpp, op
       }
       else
         ldpp_dout(dpp, 20) << "AMIN:DEBUG " << __func__ << "(): eviction failed:" << " ofs: " << ofs << dendl;
-	
-       /**/ //FIXME END
+      
+      */
+      //FIXME END
     }
   }
   ldpp_dout(dpp, 20) << "AMIN:DEBUG " << __func__ << "(): " <<  __LINE__ << " read_data size is 0" << dendl;
@@ -1596,15 +1608,19 @@ int D4NFilterObject::D4NFilterReadOp::iterate(const DoutPrefixProvider* dpp, int
 
     if (version.empty()) { //for versioned objects, get_oid() returns an oid with versionId added
       prefix = source->get_bucket()->get_name() + "_" + source->get_key().get_oid();
+      ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " prefix is: " << prefix <<  dendl;
     } else {
       prefix = source->get_bucket()->get_name() + "_" + version + "_" + source->get_key().get_oid();
+      ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " prefix is: " << prefix <<  dendl;
     }
     source->set_prefix(prefix);
   }
   else{
     prefix = source->get_prefix();
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " prefix is: " << prefix <<  dendl;
   }
 
+  ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " prefix is: " << prefix <<  dendl;
 
   this->client_cb = cb;
   this->cb->set_client_cb(cb, dpp, &y);
@@ -2273,20 +2289,15 @@ int D4NFilterWriter::sendRemote(const DoutPrefixProvider* dpp, rgw::d4n::CacheOb
 
 int D4NFilterWriter::prepare(optional_yield y) 
 {
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
+//ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
   this->objVersion = obj->get_instance();
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
   startTime = time(NULL);
   if (driver->get_cache_driver()->delete_data(save_dpp, obj->get_key().get_oid(), y) < 0) 
-    ldpp_dout(save_dpp, 10) << "D4NFilterWriter::" << __func__ << "(): CacheDriver delete_data method failed." << dendl;
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
   d4n_writecache = g_conf()->d4n_writecache_enabled;
   lsvd_cache_enabled = g_conf()->rgw_d4n_lsvd_cache_enabled;
   lsvd_cache_used = g_conf()->rgw_d4n_lsvd_use_enabled;
   lsvd_counter = 0;
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
   if (d4n_writecache == false){ //lsvd cache is also a part of write procedure
-    ldpp_dout(save_dpp, 10) << "D4NFilterObject::D4NFilterWriteOp::" << __func__ << "(): calling next iterate" << dendl;
     return next->prepare(y);
   }
   else
@@ -2295,7 +2306,7 @@ ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 
 int D4NFilterWriter::process(bufferlist&& data, uint64_t offset)
 {
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
+//ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     lsvd_counter += 1;
     bufferlist bl = data;
     off_t bl_len = bl.length();
@@ -2305,7 +2316,6 @@ ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     auto creationTime = startTime;
     bool lsvd_used = false;
 
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     std::string prefix;
     if (objVersion.empty()) { //for versioned objects, get_oid() returns an oid with versionId added
       prefix =obj->get_bucket()->get_name() + "_" + obj->get_key().get_oid();
@@ -2313,18 +2323,15 @@ ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       prefix = obj->get_bucket()->get_name() + "_" + objVersion + "_" + obj->get_key().get_oid();
     }
 
-    ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): prefix: "  << prefix << dendl;
     rgw::d4n::RGWBlockDirectory* blockDir = driver->get_block_dir_cpp();
     rgw::d4n::RGWObjectDirectory* objectDir = driver->get_obj_dir_cpp();
 
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     block.cacheObj.bucketName = obj->get_bucket()->get_name();
     block.cacheObj.objName = obj->get_key().get_oid();
     block.cacheObj.dirty = dirty;
     block.version = objVersion;
     existing_block.cacheObj.objName = block.cacheObj.objName;
     existing_block.cacheObj.bucketName = block.cacheObj.bucketName;
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 
 
     int ret = 0;
@@ -2444,26 +2451,20 @@ ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       }
     }
     if (lsvd_used == false && d4n_writecache == true){
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       std::string oid = prefix + "_" + std::to_string(ofs);
       std::string key = "D_" + oid + "_" + std::to_string(bl_len);
       std::string oid_in_cache = oid + "_" + std::to_string(bl_len);
       block.size = bl.length();
       block.blockID = ofs;
       block.dirty = true;
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       block.hostsList.push_back(blockDir->cct->_conf->rgw_local_cache_address);
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       dirty = true;
       ret = driver->get_policy_driver()->get_cache_policy()->eviction(save_dpp, block.size, y);
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       if (ret == 0) {
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
         //Should we replace each put_async with put, to ensure data is actually written to the cache before updating the data structures and before the lock is released?
 	if (bl.length() > 0) {          
           ret = driver->get_cache_driver()->put(save_dpp, key, bl, bl.length(), obj->get_attrs(), y);
           if (ret == 0) {
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
  	    driver->get_policy_driver()->get_cache_policy()->update(save_dpp, oid_in_cache, ofs, bl.length(), objVersion, dirty, creationTime,  obj->get_bucket()->get_owner(), y);
             //if (!blockDir->exist_key(&block, y)) {
               if (blockDir->set(&block, y) < 0) //should we revert previous steps if this step fails?
@@ -2505,10 +2506,9 @@ int D4NFilterWriter::complete(size_t accounted_size, const std::string& etag,
                        const req_context& rctx,
                        uint32_t flags)
 {
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
+//ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
   auto creationTime = startTime;
   if (d4n_writecache == true){
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     bool dirty = true;
     std::vector<std::string> hostsList = {};
     std::string objEtag = etag;
@@ -2519,20 +2519,16 @@ ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     } else {
       prefix = obj->get_bucket()->get_name() + "_" + objVersion + "_" + obj->get_key().get_oid();
     }
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 
     RGWAccessControlPolicy acl = obj->get_acl();
     bufferlist bl_attr;
     acl.encode(bl_attr);
     rgw::sal::Attrs obj_attrs; 
     obj_attrs[RGW_ATTR_ACL] = std::move(bl_attr);
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 
-    ldpp_dout(save_dpp, 10) << "Amin: D4NFilterWriter::" << __func__ << "()" << dendl;
 
     hostsList = { driver->get_block_dir_cpp()->cct->_conf->rgw_local_cache_address };
     if ((lsvd_cache_enabled == false && lsvd_cache_used == false) || (accounted_size >= g_conf()->rgw_d4n_small_object_threshold)) { 
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       rgw::d4n::CacheObjectCpp object = rgw::d4n::CacheObjectCpp{
 		 .objName = obj->get_key().get_oid(), 
 		 .bucketName = obj->get_bucket()->get_name(),
@@ -2544,14 +2540,11 @@ ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 		 .attrs = obj_attrs
               };
 
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       //TODO: check if the key exist  in the directory, if yes, uopdate it instead of set
       if (driver->get_obj_dir_cpp()->set(&object, y) < 0) 
         ldpp_dout(save_dpp, 10) << "D4NFilterWriter::" << __func__ << "(): ObjectDirectory set method failed." << dendl;
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 
       driver->get_policy_driver()->get_cache_policy()->updateObj(save_dpp, prefix, objVersion, dirty, accounted_size, creationTime, obj->get_bucket()->get_owner(), objEtag, y);
-ldpp_dout(save_dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
       return 0;
     }
     else
