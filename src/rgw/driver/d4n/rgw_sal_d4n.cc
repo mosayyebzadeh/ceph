@@ -23,6 +23,9 @@
 #include <sstream>
 #include <vector>
 
+#include <fcntl.h>
+#include <unistd.h>
+
 //crc
 namespace fs = std::filesystem;
 
@@ -62,7 +65,13 @@ D4NFilterDriver::D4NFilterDriver(Driver* _next, boost::asio::io_context& io_cont
   rgw::cache::Partition partition_info;
   partition_info.name = "d4n";
   partition_info.type = "read-cache";
-  partition_info.size = g_conf()->rgw_d4n_l1_datacache_size;
+
+  /* Dynamic Caching */
+  if (g_conf()->d4n_dynamic_caching_enabled == true)
+    partition_info.size = 1073741824; 
+    //partition_info.size = g_conf()->d4n_dynamic_caching_max_size/2; //start with half size
+  else
+    partition_info.size = g_conf()->rgw_d4n_l1_datacache_size;
 
   if (config_cache == "ssd") {
     partition_info.location = g_conf()->rgw_d4n_l1_datacache_persistent_path;
@@ -640,7 +649,7 @@ int D4NFilterObject::get_obj_attrs(optional_yield y, const DoutPrefixProvider* d
       ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " version stored in update method is: " << this->get_object_version() << dendl;
       time_t creationTime = ceph::real_clock::to_time_t(this->get_mtime());
       //FIXME: AMIN comment the next line for remote copy 5/5/2025
-      this->driver->get_policy_driver()->get_cache_policy()->update(dpp, head_oid_in_cache, 0, 0, version, false, creationTime, this->get_bucket()->get_owner(), y);
+      //this->driver->get_policy_driver()->get_cache_policy()->update(dpp, head_oid_in_cache, 0, 0, version, false, creationTime, this->get_bucket()->get_owner(), y);
       ret = set_head_obj_dir_entry(dpp, y, is_latest_version);
       if (ret < 0) {
         ldpp_dout(dpp, 0) << "D4NFilterObject::" << __func__ << "(): BlockDirectory set method failed for head object, ret=" << ret << dendl;
@@ -1698,6 +1707,31 @@ int D4NFilterObject::D4NFilterReadOp::iterate(const DoutPrefixProvider* dpp, int
     ret = findLocation(dpp, &block, y);
     if (ret < 0){
       break;
+    }
+
+    if (g_conf()->d4n_dynamic_caching_enabled == true){
+      source->driver->update_total_reads(1); //new read
+      if (cached_local == 0)
+        source->driver->update_total_misses(1); //a miss
+
+      if (source->driver->get_total_reads()%10 == 0){
+        int fd = open("/tmp/rgw_log.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd != -1) {
+          std::string msg = std::string("cache size: ") + std::to_string(source->driver->get_cache_driver()->get_current_partition_info(dpp).size) + std::string(" miss ratio: ") + std::to_string(static_cast<double>(source->driver->get_total_misses())/static_cast<double>(source->driver->get_total_reads())) + std::string("\n");
+          write(fd, msg.c_str(), msg.size());
+          close(fd);
+        }
+        ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " cache size: " <<  std::to_string(source->driver->get_cache_driver()->get_current_partition_info(dpp).size)  << " reads: " << std::to_string(source->driver->get_total_reads()) <<  " misses: " << std::to_string(source->driver->get_total_misses()) << " miss ratio: " << std::to_string(static_cast<double>(static_cast<double>(source->driver->get_total_misses())/static_cast<double>(source->driver->get_total_reads()))) << dendl;
+      }
+    }
+
+    if (g_conf()->d4n_dynamic_caching_enabled == true){
+      if (static_cast<double>(static_cast<double>(source->driver->get_total_misses())/static_cast<double>(source->driver->get_total_reads())) > g_conf()->d4n_dynamic_caching_miss_ratio_max) //miss ratio is higher than maximum value
+        source->driver->get_cache_driver()->double_cache_space(dpp); //double the cache size	
+      else if (static_cast<double>(static_cast<double>(source->driver->get_total_misses())/static_cast<double>(source->driver->get_total_reads())) < g_conf()->d4n_dynamic_caching_miss_ratio_min){ //miss ratio is higher than maximum value
+        source->driver->get_cache_driver()->halve_cache_space(dpp); //halve the cache size	
+	//source->driver->get_policy_driver()->get_cache_policy()->eviction(dpp, 1073741824 /* this should be the reduced size */ , y);
+      }
     }
 
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " <<  __LINE__ << " adjusted_start_ofs: " << adjusted_start_ofs << " cached_local: " << std::to_string(cached_local) <<  dendl;

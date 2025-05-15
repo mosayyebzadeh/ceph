@@ -81,6 +81,11 @@ class D4NFilterDriver : public FilterDriver {
     boost::asio::io_context& io_context;
     bool lsvd_cache_enabled = false;
 
+   /* Dynamic Caching */
+   uint64_t total_read_requests = 0;
+   uint64_t total_read_misses = 0;
+   
+
   public:
     D4NFilterDriver(Driver* _next, boost::asio::io_context& io_context);
     virtual ~D4NFilterDriver();
@@ -108,6 +113,11 @@ class D4NFilterDriver : public FilterDriver {
     rgw::d4n::RGWObjectDirectory* get_obj_dir_cpp() { return objectDirCpp; }
     rgw::d4n::RGWPolicyDriver* get_policy_driver() { return policyDriverCpp; }
 
+   /* Dynamic Caching */
+    uint64_t get_total_reads(){ return total_read_requests; }
+    uint64_t get_total_misses(){ return total_read_misses; }
+    void update_total_reads(uint64_t new_reads){ total_read_requests += new_reads; }
+    void update_total_misses(uint64_t new_misses){ total_read_misses += new_misses; }
 
     //FIXME: AMIN: crc 
     //BEGIN

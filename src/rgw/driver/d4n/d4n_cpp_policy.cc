@@ -532,11 +532,11 @@ int RGWLFUDAPolicy::sendRemote(const DoutPrefixProvider* dpp, CacheBlockCpp *vic
 
 int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optional_yield y) {
   int ret = -1;
-  uint64_t freeSpace = cacheDriver->get_free_space(dpp);
+  int64_t freeSpace = static_cast<int64_t>(cacheDriver->get_free_space(dpp));
 
   ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " free space is " << freeSpace << dendl;
   ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " size is " << size << dendl;
-  while (freeSpace < size) { // TODO: Think about parallel reads and writes; can this turn into an infinite loop? 
+  while (freeSpace < static_cast<int64_t>(size)) { // TODO: Think about parallel reads and writes; can this turn into an infinite loop? 
     CacheBlockCpp* victim = get_victim_block(dpp, y);
 
     if (victim == nullptr) {
@@ -669,12 +669,14 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " remote_host ret: " << ret << dendl;
 
     /* AMIN: FIXME: to test hostsList, remove it. */
+    /*
     ret = dir->get(victim, y);
     if (ret < 0){
       ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " dir->get ret: " << ret << dendl;
       return ret;
     }
     ldpp_dout(dpp, 20) << "AMIN:" << __func__ << "(): " << __LINE__ << " ofs: " << victim->blockID << " hostsList: " << victim->hostsList << dendl;
+    */
     /* AMIN END */
 
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " before delete data: " << key << dendl;
