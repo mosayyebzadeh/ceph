@@ -21,10 +21,11 @@ int SSDDriver::initialize(const DoutPrefixProvider* dpp)
       partition_info.location += "/";
     }
 
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //AMIN
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
     //ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " partition is: " << partition_info.location << dendl;
-    //this->free_space = dpp->get_cct()->_conf->rgw_d4n_l1_datacache_size;
+    this->free_space = partition_info.size;
 
     try {
         if (efs::exists(partition_info.location)) {
@@ -90,11 +91,11 @@ int SSDDriver::initialize(const DoutPrefixProvider* dpp)
     aio_init(&ainit);
     #endif
 
-    //currently partition_info.size is unused
-    space = efs::space(partition_info.location);
-    this->free_space = space.available;
     //AMIN
-    //this->free_space = dpp->get_cct()->_conf->rgw_d4n_l1_datacache_size;
+    //currently partition_info.size is unused
+    //space = efs::space(partition_info.location);
+    //this->free_space = space.available;
+    this->free_space = partition_info.size;
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " FREE SPACE is: " << free_space << dendl;
     ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " rgw_d4n_l1_datacache_size is: " << dpp->get_cct()->_conf->rgw_d4n_l1_datacache_size << dendl;
 
@@ -122,8 +123,11 @@ int SSDDriver::put(const DoutPrefixProvider* dpp, const std::string& key, const 
         return ec.value();
     }
 
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > static_cast<int64_t>(partition_info.size))
+      this->free_space = 0;
     //this->free_space -= len;
     return 0;
 }
@@ -202,9 +206,12 @@ int SSDDriver::append_data(const DoutPrefixProvider* dpp, const::std::string& ke
     }
 
     //AMIN
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
     //this->free_space -= nbytes;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > static_cast<int64_t>(partition_info.size))
+      this->free_space = 0;
 
     return 0;
 }
@@ -347,7 +354,8 @@ int SSDDriver::delete_data(const DoutPrefixProvider* dpp, const::std::string& ke
 ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     std::string location = partition_info.location + key;
     efs::path filePath = location;
-    //uint64_t size = efs::file_size(filePath);
+ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " location is: " << location << dendl;
+    uint64_t size = efs::file_size(filePath);
 
 
 ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
@@ -358,9 +366,12 @@ ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
 
 ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     //AMIN
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
     //this->free_space += size;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > static_cast<int64_t>(partition_info.size))
+      this->free_space = 0;
 
 ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     return 0;
@@ -562,8 +573,11 @@ int SSDDriver::update_attrs(const DoutPrefixProvider* dpp, const std::string& ke
 
     
     //AMIN
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > static_cast<int64_t>(partition_info.size))
+      this->free_space = 0;
     /*
     uint64_t after_size = efs::file_size(filePath);
     if (after_size > prev_size){
@@ -593,8 +607,11 @@ int SSDDriver::delete_attrs(const DoutPrefixProvider* dpp, const std::string& ke
     }
 
     //AMIN
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > static_cast<int64_t>(partition_info.size))
+      this->free_space = 0;
     /*
     uint64_t after_size = efs::file_size(filePath);
     if (after_size > prev_size){
@@ -661,8 +678,11 @@ int SSDDriver::set_attrs(const DoutPrefixProvider* dpp, const std::string& key, 
     }
 
     //AMIN
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > static_cast<int64_t>(partition_info.size))
+      this->free_space = 0;
     /*
     uint64_t after_size = efs::file_size(filePath);
     if (after_size > prev_size){
@@ -723,8 +743,11 @@ int SSDDriver::set_attr(const DoutPrefixProvider* dpp, const std::string& key, c
     }
 
     //AMIN
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > partition_info.size)
+      this->free_space = 0;
     /*
     uint64_t after_size = efs::file_size(filePath);
     if (after_size > prev_size){
@@ -752,9 +775,12 @@ int SSDDriver::delete_attr(const DoutPrefixProvider* dpp, const std::string& key
     }
 
     //AMIN
-    efs::space_info space = efs::space(partition_info.location);
-    this->free_space = space.available;
-    /*
+    //efs::space_info space = efs::space(partition_info.location);
+    //this->free_space = space.available;
+    this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+    if (this->free_space > static_cast<int64_t>(partition_info.size))
+      this->free_space = 0;
+    /* 
     uint64_t after_size = efs::file_size(filePath);
     if (after_size > prev_size){
       this->free_space -= (after_size - prev_size);
@@ -767,9 +793,58 @@ int SSDDriver::delete_attr(const DoutPrefixProvider* dpp, const std::string& key
     return 0;
 }
 
-uint64_t SSDDriver::get_free_space(const DoutPrefixProvider* dpp){
-    efs::space_info space = efs::space(partition_info.location);
-    return space.available;
+int64_t SSDDriver::get_free_space(const DoutPrefixProvider* dpp){
+    //AMIN
+    //efs::space_info space = efs::space(partition_info.location);
+    //return space.available;
+    return free_space;
 }
+
+int64_t SSDDriver::getDirectoryFilesSize(const DoutPrefixProvider* dpp, const std::string& dirPath) {
+    int64_t totalSize = 0;
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " direPath is: " << dirPath << dendl;
+
+    try {
+        for (const auto& entry : efs::directory_iterator(dirPath)) {
+            if (efs::is_regular_file(entry)) {
+                totalSize += static_cast<int64_t>(efs::file_size(entry));
+            }
+        }
+    } catch (const efs::filesystem_error& e) {
+        std::cerr << "Error accessing directory: " << e.what() << std::endl;
+        return 0;
+    }
+    ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " totalSize is: " << totalSize << dendl;
+
+    return totalSize;
+}
+
+/* Dynamic Caching */
+void SSDDriver::double_cache_space(const DoutPrefixProvider* dpp) {
+  if (this->free_space > 1073741824) //there is enough space
+    return;
+  uint64_t cache_max_size = dpp->get_cct()->_conf->d4n_dynamic_caching_max_size;
+  if (cache_max_size > partition_info.size + 107374182)
+    partition_info.size += 107374182;
+    //partition_info.size *=2;
+  else
+    partition_info.size = cache_max_size;
+
+  this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+}
+
+void  SSDDriver::halve_cache_space(const DoutPrefixProvider* dpp) { 
+  uint64_t cache_min_size = dpp->get_cct()->_conf->d4n_dynamic_caching_min_size;
+  //if (cache_min_size < (partition_info.size/2))
+  //  partition_info.size /=2;
+  if (cache_min_size < partition_info.size - 107374182)
+    partition_info.size -= 107374182;
+  else
+    partition_info.size = cache_min_size;
+
+  this->free_space = static_cast<int64_t>(partition_info.size) - static_cast<int64_t>(getDirectoryFilesSize(dpp, partition_info.location));
+}
+
+
 
 } } // namespace rgw::cache

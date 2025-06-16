@@ -30,12 +30,17 @@ public:
 
   /* Partition */
   virtual Partition get_current_partition_info(const DoutPrefixProvider* dpp) override { return partition_info; }
-  virtual uint64_t get_free_space(const DoutPrefixProvider* dpp) override;
+  virtual int64_t get_free_space(const DoutPrefixProvider* dpp) override;
   void set_free_space(const DoutPrefixProvider* dpp, uint64_t free_space) { this->free_space = free_space; }
+  int64_t getDirectoryFilesSize(const DoutPrefixProvider* dpp, const std::string& dirPath);
+
+  /* Dynamic Caching */
+  virtual void double_cache_space(const DoutPrefixProvider* dpp) override;
+  virtual void halve_cache_space(const DoutPrefixProvider* dpp) override;
 
 private:
   Partition partition_info;
-  uint64_t free_space;
+  int64_t free_space;
   CephContext* cct;
   inline static std::atomic<uint64_t> index{0};
 

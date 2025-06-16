@@ -569,7 +569,7 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
     
     set_read_flag(dpp, key, 2); //it is getting deleted.
 
-    //int avgWeight = weightSum / entries_map.size();
+    int localAvgWeight = weightSum / entries_map.size();
 
     //FIXME: remoteCacheAddress is getting overriden by a new cache. it should be updates instead.
     int avgWeight;
@@ -641,6 +641,18 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
      }
     */
      ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << dendl;
+
+
+     //If the block still the candidate, if not,choose another one
+     std::string key_top = entries_heap.top()->key;
+     if (key_top != key){
+       ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " There is a better block to evict: " << key_del << dendl;
+       delete victim;
+       continue;
+     }
+     else{
+       ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " Still the best candidate: " << key << dendl;
+     }
     }
 
 
@@ -713,7 +725,7 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
 
     ldpp_dout(dpp, 10) << "LFUDAPolicy::" << __func__ << "(): Block " << key << " has been evicted." << dendl;
 
-    weightSum = (avgWeight * entries_map.size()) - localWeight;
+    weightSum = (localAvgWeight * entries_map.size()) - localWeight;
 
     age = std::max(localWeight, age);
 

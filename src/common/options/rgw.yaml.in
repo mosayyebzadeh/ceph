@@ -4177,3 +4177,43 @@ options:
   services: 
   - rgw
   with_legacy: true
+- name: d4n_dynamic_caching_enabled
+  type: bool
+  level: advanced
+  desc: D4N dynamic caching enabled
+  default: false
+  services: 
+  - rgw
+  with_legacy: true
+- name: d4n_dynamic_caching_miss_ratio_max
+  type: float
+  level: advanced
+  desc: The threshold in percentage to decide if the cache space should be increased or not
+  default: 0.8
+  services: 
+  - rgw
+  with_legacy: true
+- name: d4n_dynamic_caching_miss_ratio_min
+  type: float
+  level: advanced
+  desc: The threshold in percentage to decide if the cache space should be decreased or not
+  default: 0.05
+  services: 
+  - rgw
+  with_legacy: true
+- name: d4n_dynamic_caching_max_size
+  type: size
+  level: advanced
+  desc: Maximum cache space to be used in Dynamic Caching
+  default: 100_G
+  services: 
+  - rgw
+  with_legacy: true
+- name: d4n_dynamic_caching_min_size
+  type: size
+  level: advanced
+  desc: Minimum cache space to be used in Dynamic Caching
+  default: 1_G
+  services: 
+  - rgw
+  with_legacy: true

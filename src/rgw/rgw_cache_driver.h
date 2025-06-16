@@ -35,7 +35,11 @@ class CacheDriver {
 
     /* Partition */
     virtual Partition get_current_partition_info(const DoutPrefixProvider* dpp) = 0;
-    virtual uint64_t get_free_space(const DoutPrefixProvider* dpp) = 0;
+    virtual int64_t get_free_space(const DoutPrefixProvider* dpp) = 0;
+
+   /* Dynamic Caching */
+   virtual void double_cache_space(const DoutPrefixProvider* dpp) { return; }
+   virtual void halve_cache_space(const DoutPrefixProvider* dpp) { return; }
 };
 
 } } // namespace rgw::cache
