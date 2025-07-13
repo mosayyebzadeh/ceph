@@ -355,7 +355,7 @@ ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
     std::string location = partition_info.location + key;
     efs::path filePath = location;
 ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << " location is: " << location << dendl;
-    uint64_t size = efs::file_size(filePath);
+    //uint64_t size = efs::file_size(filePath);
 
 
 ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__ << dendl;
@@ -552,7 +552,7 @@ int SSDDriver::update_attrs(const DoutPrefixProvider* dpp, const std::string& ke
 {
     std::string location = partition_info.location + key;
     efs::path filePath = location;
-    uint64_t prev_size = efs::file_size(filePath);
+    //uint64_t prev_size = efs::file_size(filePath);
     ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): location=" << location << dendl;
 
     for (auto& it : attrs) {
@@ -595,7 +595,7 @@ int SSDDriver::delete_attrs(const DoutPrefixProvider* dpp, const std::string& ke
 {
     std::string location = partition_info.location + key;
     efs::path filePath = location;
-    uint64_t prev_size = efs::file_size(filePath);
+    //uint64_t prev_size = efs::file_size(filePath);
     ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): location=" << location << dendl;
 
     for (auto& it : del_attrs) {
@@ -663,7 +663,7 @@ int SSDDriver::set_attrs(const DoutPrefixProvider* dpp, const std::string& key, 
 {
     std::string location = partition_info.location + key;
     efs::path filePath = location;
-    uint64_t prev_size = efs::file_size(filePath);
+    //uint64_t prev_size = efs::file_size(filePath);
     ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): location=" << location << dendl;
 
     for (auto& [attr_name, attr_val_bl] : attrs) {
@@ -731,7 +731,7 @@ int SSDDriver::set_attr(const DoutPrefixProvider* dpp, const std::string& key, c
 {
     std::string location = partition_info.location + key;
     efs::path filePath = location;
-    uint64_t prev_size = efs::file_size(filePath);
+    //uint64_t prev_size = efs::file_size(filePath);
     ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): location=" << location << dendl;
 
     ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): set_attr: key: " << attr_name << " val: " << attr_val << dendl;
@@ -765,7 +765,7 @@ int SSDDriver::delete_attr(const DoutPrefixProvider* dpp, const std::string& key
 {
     std::string location = partition_info.location + key;
     efs::path filePath = location;
-    uint64_t prev_size = efs::file_size(filePath);
+    //uint64_t prev_size = efs::file_size(filePath);
     ldpp_dout(dpp, 20) << "SSDCache: " << __func__ << "(): location=" << location << dendl;
 
     auto ret = removexattr(location.c_str(), attr_name.c_str());

@@ -646,7 +646,7 @@ int RGWLFUDAPolicy::eviction(const DoutPrefixProvider* dpp, uint64_t size, optio
      //If the block still the candidate, if not,choose another one
      std::string key_top = entries_heap.top()->key;
      if (key_top != key){
-       ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " There is a better block to evict: " << key_del << dendl;
+       ldpp_dout(dpp, 20) << "AMIN: " << __func__ << "(): " << __LINE__  << " There is a better block to evict: " << key << dendl;
        delete victim;
        continue;
      }

@@ -95,8 +95,6 @@ void RGWBlockDirectory::connectClient(){
 
 int RGWObjectDirectory::findClient(std::string key){
   int slot = 0;
-  ldout(cct,10) <<__func__<<": " << __LINE__ <<  dendl;
-  ldout(cct,10) <<__func__<<": " << __LINE__ << " key is: " << key <<  dendl;
   slot = hash_slot(key.c_str(), key.size());
   int dirMasterCount = cct->_conf->rgw_directory_master_count;
   int slotQuota = 16384/dirMasterCount; 
@@ -115,7 +113,6 @@ int RGWObjectDirectory::findClient(std::string key){
   }
 
   for (int i = 0; i < dirMasterCount; i++){
-    ldout(cct,10) <<__func__<<": " << __LINE__ << ": slot is: " << slot << " slotQuota is: " << slotQuota << dendl;
     if (slot < (slotQuota*(i+1))){
       return i;
     }
@@ -125,8 +122,6 @@ int RGWObjectDirectory::findClient(std::string key){
 
 int RGWBlockDirectory::findClient(std::string key){
   int slot = 0;
-  ldout(cct,10) <<__func__<<": " << __LINE__ <<  dendl;
-  ldout(cct,10) <<__func__<<": " << __LINE__ << " key is: " << key <<  dendl;
   slot = hash_slot(key.c_str(), key.size());
   int dirMasterCount = cct->_conf->rgw_directory_master_count;
   int slotQuota = 16384/dirMasterCount; 
@@ -145,7 +140,6 @@ int RGWBlockDirectory::findClient(std::string key){
   }
 
   for (int i = 0; i < dirMasterCount; i++){
-    ldout(cct,10) <<__func__<<": " << __LINE__ << ": slot is: " << slot << " slotQuota is: " << slotQuota << dendl;
     if (slot < (slotQuota*(i+1))){
       return i;
     }
