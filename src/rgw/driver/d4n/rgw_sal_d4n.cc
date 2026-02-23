@@ -1529,7 +1529,7 @@ int D4NFilterObject::set_data_block_dir_entries(const DoutPrefixProvider* dpp, o
       return ret;
     }
 
-    //in case of a remote request, the blocks are not dirty, hence don't change the flag in the directory
+    //in case of a remote request, the flag in the directory should updated only by the local cache and/or the cleaning cache.
     bool update_dirty_flag = true;
     if (remote_cache_request) {
       update_dirty_flag = false;
@@ -1580,7 +1580,7 @@ int D4NFilterObject::delete_data_block_cache_entries(const DoutPrefixProvider* d
   return 0;
 }
 
-bool D4NFilterObject::check_head_exists_in_cache_get_oid(const DoutPrefixProvider* dpp, std::string& head_oid_in_cache, rgw::sal::Attrs& attrs, rgw::d4n::CacheBlock& blk, optional_yield y)
+bool D4NFilterObject::check_head_exists_in_cache_get_oid(const DoutPrefixProvider* dpp, std::string&	head_oid_in_cache, rgw::sal::Attrs& attrs, rgw::d4n::CacheBlock& blk, optional_yield y)
 {
   rgw::d4n::BlockDirectory* blockDir = this->driver->get_block_dir();
   std::string objName = this->get_oid();
@@ -2051,12 +2051,11 @@ int D4NFilterObject::D4NFilterReadOp::flush(const DoutPrefixProvider* dpp, rgw::
         rgw::d4n::CacheBlock dest_block;
         dest_block.cacheObj.objName = source->dest_object->get_oid();
         dest_block.cacheObj.bucketName = source->dest_bucket->get_bucket_id();
-        dest_block.cacheObj.dirty = true; //writing to cache
         dest_block.blockID = ofs;
         dest_block.size = len;
         dest_block.cacheObj.hostsList.insert(dpp->get_cct()->_conf->rgw_d4n_local_rgw_address);
         dest_block.version = dest_version;
-        dest_block.cacheObj.dirty = true;
+        dest_block.cacheObj.dirty = true; //writing to cache
         std::string key =  get_key_in_cache(get_cache_block_prefix(source->dest_object, dest_version), std::to_string(ofs), std::to_string(len));
         auto ret = source->driver->get_policy_driver()->get_cache_policy()->eviction(dpp, dest_block.size, y);
         if (ret == 0) {
@@ -2519,7 +2518,6 @@ int D4NFilterObject::D4NFilterReadOp::D4NFilterGetCB::handle_data(bufferlist& bl
 int D4NFilterObject::D4NFilterDeleteOp::delete_obj(const DoutPrefixProvider* dpp,
                                                    optional_yield y, uint32_t flags)
 {
-  // TODO: Send delete request to cache nodes with remote copies
 
   rgw::sal::Attrs attrs;
   std::string head_oid_in_cache;
@@ -2543,6 +2541,48 @@ int D4NFilterObject::D4NFilterDeleteOp::delete_obj(const DoutPrefixProvider* dpp
     auto bucketDir = source->driver->get_bucket_dir();
     std::string version = source->get_object_version();
     std::string objName = source->get_name();
+    bool remote_cache_request = source->is_remote_cache_request();
+
+	/* for remote delete requests, if the object is dirty we should invalidate it. 
+	 Otherwise, since the directory entry is deleted in the local host, we do not need to do anything
+	 and cleaning/garbage collection process will take care of the actual data */
+	if (dpp->get_cct()->_conf->rgw_d4n_remote_enabled) {
+	  if (remote_cache_request) {
+	    if (objDirty){
+	  	  ret = source->driver->get_policy_driver()->get_cache_policy()->invalidate_dirty_object(dpp, head_oid_in_cache);
+	  	  if (ret < 0)
+			return ret;
+		  objDirty = false;
+	    }
+	    //check if the cache has enough space, if not, don't wait for cleaning 
+	    if (source->driver->get_cache_driver()->get_free_space(dpp, y) > dpp->get_cct()->_conf->rgw_d4n_l1_datacache_free_threshold)
+		  return 0;
+	  }
+      //send it to remote only if it is not a remote request from another rgw
+	  // TODO: for better efficiency, it is better to check if the data is copied to the remote before sending the request
+	  else{
+          auto user = source->get_bucket()->get_owner();
+          std::string remote_addr = dpp->get_cct()->_conf->rgw_d4n_remote_cache_address;
+          ldpp_dout(dpp, 20) << "D4NFilterWriter::" << __func__ << "(): remoteaddr =" << remote_addr << dendl;
+          rgw::d4n::RemoteCacheDelete::RemoteCacheDeleteOp op {
+              source->get_bucket()->get_name(),
+              objName,
+			  0, 
+			  0,
+              version,
+              std::get<rgw_user>(user),
+              remote_addr,
+			  source->get_size()
+          };
+          bufferlist bl;
+          std::unique_ptr<rgw::d4n::RemoteCacheDelete> remote_delete = std::make_unique<rgw::d4n::RemoteCacheDelete>(source->driver, op);
+          auto ret = remote_delete->send_and_complete_request(dpp, bl, "DELETE", y);
+          if (ret < 0) {
+            ldpp_dout(dpp, 0) << "D4NFilterObject::" << __func__ << "(): send_and_complete_request failed for remote cache: " << remote_addr <<  "ret= " << ret << dendl;
+    	}
+      } //end - if else (remote_cache_request)
+	} //if (dpp->get_cct()->_conf->rgw_d4n_remote_enabled)
+
     // special handling for name starting with '_'
     if (objName[0] == '_') {
       objName = "_" + source->get_name();
@@ -2870,7 +2910,6 @@ int D4NFilterWriter::process(bufferlist&& data, uint64_t offset)
     bool dirty = true;
     bool remote_cache_request = object->is_remote_cache_request();
     if (remote_cache_request) {
-      dirty = false;
       ofs = object->get_remote_block_offset();
       ldpp_dout(dpp, 10) << "D4NFilterWriter::" << __func__ << "(): ofs is: " << ofs << dendl;
     }
@@ -2921,7 +2960,7 @@ int D4NFilterWriter::process(bufferlist&& data, uint64_t offset)
               remote_addr
           };
           std::unique_ptr<rgw::d4n::RemoteCachePut> remote_put = std::make_unique<rgw::d4n::RemoteCachePut>(driver, op);
-          auto ret = remote_put->send_and_complete_request(dpp, bl, y);
+          auto ret = remote_put->send_and_complete_request(dpp, bl, "PUT", y);
           if (ret < 0) {
             ldpp_dout(dpp, 0) << "D4NFilterWriter::" << __func__ << "(): send_and_complete_request failed for remote cache: " << remote_addr <<  "ret= " << ret << dendl;
           }
@@ -3017,9 +3056,6 @@ int D4NFilterWriter::complete(size_t accounted_size, const std::string& etag,
     }
 
     dirty = true;
-    if (remote_cache_request) {
-      dirty = false;
-    }
     ceph::real_time m_time;
     if (mtime) {
       if (real_clock::is_zero(*mtime)) {
@@ -3097,7 +3133,7 @@ int D4NFilterWriter::complete(size_t accounted_size, const std::string& etag,
           ldpp_dout(dpp, 0) << "D4NFilterWriter::" << __func__ << "(): BlockDirectory set method failed for head object, ret=" << ret << dendl;
           return ret;
         }
-        if (dirty) {
+        if (dirty && !remote_cache_request) {
           auto creationTime = ceph::real_clock::to_double(object->get_mtime());
           ldpp_dout(dpp, 20) << "D4NFilterWriter::" << __func__ << "(): key=" << key << dendl;
           ldpp_dout(dpp, 20) << "D4NFilterWriter::" << __func__ << "(): obj->get_key()=" << obj->get_key() << dendl;
@@ -3122,7 +3158,7 @@ int D4NFilterWriter::complete(size_t accounted_size, const std::string& etag,
               };
               bufferlist bl;
               std::unique_ptr<rgw::d4n::RemoteCachePut> remote_put = std::make_unique<rgw::d4n::RemoteCachePut>(driver, op);
-              ret = remote_put->send_and_complete_request(dpp, bl, y);
+              ret = remote_put->send_and_complete_request(dpp, bl, "PUT", y);
               if (ret < 0) {
                 ldpp_dout(dpp, 0) << "D4NFilterWriter::" << __func__ << "(): send_and_complete_request failed for remote cache: " << remote_addr <<  "ret= " << ret << dendl;
               }
@@ -3224,7 +3260,7 @@ void D4NFilterWriter::write_to_remote_cache(const DoutPrefixProvider* dpp_o, con
           size
       };
       std::unique_ptr<rgw::d4n::RemoteCachePut> remote_put = std::make_unique<rgw::d4n::RemoteCachePut>(driver, op);
-      ret = remote_put->send_and_complete_request(dpp_o, bl, y);
+      ret = remote_put->send_and_complete_request(dpp_o, bl, "PUT", y);
       if (ret < 0) {
         ldpp_dout(dpp_o, 0) << "D4NFilterWriter::" << __func__ << "(): send_and_complete_request failed for remote cache: " << remote_addr <<  "ret= " << ret << dendl;
         return;
@@ -3245,7 +3281,7 @@ void D4NFilterWriter::write_to_remote_cache(const DoutPrefixProvider* dpp_o, con
   bufferlist bl;
 
   std::unique_ptr<rgw::d4n::RemoteCachePut> remote_put = std::make_unique<rgw::d4n::RemoteCachePut>(driver, op);
-  auto ret = remote_put->send_and_complete_request(dpp_o, bl, y);
+  auto ret = remote_put->send_and_complete_request(dpp_o, bl, "PUT", y);
   if (ret < 0) {
     ldpp_dout(dpp_o, 0) << "D4NFilterWriter::" << __func__ << "(): send_and_complete_request failed for remote cache: " << remote_addr <<  "ret= " << ret << dendl;
   }
@@ -3401,7 +3437,7 @@ int D4NFilterObject::D4NFilterReadOp::remoteFlush(const DoutPrefixProvider* dpp,
   std::string version = source->get_object_version();
   std::string prefix = source->get_prefix();
   Attrs attrs = source->get_object_attrs();
-  bool dirty = false; //this is remote, no cleaning
+  bool dirty = false; //TODO: we should pass dirty flag correctly.
 
   std::string oid_in_cache = prefix + "_" + std::to_string(ofs) + "_" + std::to_string(len); // we read from adjusted_ofs = offset
   ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " calling update for offset: " << ofs  << " length: " << len << " oid_in_cache: " << oid_in_cache << dendl;
