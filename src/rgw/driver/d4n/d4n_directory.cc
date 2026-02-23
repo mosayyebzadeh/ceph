@@ -807,6 +807,95 @@ int ObjectDirectory::zrank(const DoutPrefixProvider* dpp, CacheObj* object, cons
   return 0;
 }
 
+/* The lock mechanism is developed as follows:
+* create a new key "lock:oid" with a unique value
+* if the key exists it means another rgw has the lock for the object. we return -1.
+* otherwise we create the key and acquire the lock. return 0. */
+int ObjectDirectory::acquire_lock(const DoutPrefixProvider* dpp, CacheObj* object, optional_yield y)
+{
+  std::string key = build_index(object);
+  std::string lock_key = "lock:"+key; //lock:oid
+  std::string lock_value = dpp->get_cct()->_conf->rgw_d4n_local_rgw_address + ":" + key; //IP:oid -> it should be unique
+  
+  try {
+    boost::system::error_code ec;
+    response<ignore_t> resp;
+    request req;
+	//SETEX key seconds value
+    req.push("SETEX", lock_key, 60, lock_value);
+
+    redis_exec_connection_pool(dpp, redis_pool, conn, ec, req, resp, y);
+
+    if (ec) {
+      ldpp_dout(dpp, 0) << "ObjectDirectory::" << __func__ << "() lock is acquired by another rgw " << dendl;
+      return -1;
+    }
+  } catch (std::exception &e) {
+    ldpp_dout(dpp, 0) << "ObjectDirectory::" << __func__ << "() ERROR: " << e.what() << dendl;
+    return -EINVAL;
+  }
+
+  return 0;
+}
+
+int ObjectDirectory::release_lock(const DoutPrefixProvider* dpp, CacheObj* object, optional_yield y)
+{
+  std::string key = build_index(object);
+  std::string lock_key = "lock:"+key; //lock:oid
+  std::string lock_value = dpp->get_cct()->_conf->rgw_d4n_local_rgw_address + ":" + key; //IP:oid -> it should be unique
+  
+  try {
+    boost::system::error_code ec;
+    response<std::optional<std::string>> resp;
+    request req;
+    req.push("GET", lock_key);
+
+    redis_exec_connection_pool(dpp, redis_pool, conn, ec, req, resp, y);
+
+    if (ec) {
+      ldpp_dout(dpp, 0) << "ObjectDirectory::" << __func__ << "() Lock is not released " << dendl;
+      return -1;
+    }
+	if (std::get<0>(resp).value() == lock_value){
+	  try {
+    	boost::system::error_code ec;
+	    response<int> resp;
+    	request req;
+	    req.push("DEL", lock_key);
+
+	    redis_exec_connection_pool(dpp, redis_pool, conn, ec, req, resp, y);
+
+    	if (!std::get<0>(resp).value()) {
+		  ldpp_dout(dpp, 10) << "ObjectDirectory::" << __func__ << "(): Lock is not released." << dendl;
+      	  return -ENOENT;
+    	}
+
+    	if (ec) {
+      	  ldpp_dout(dpp, 0) << "ObjectDirectory::" << __func__ << "() ERROR: " << ec.what() << dendl;
+      	  return -ec.value();
+    	}
+
+        ldpp_dout(dpp, 20) << "ObjectDirectory::" << __func__ << "(): Lock is released. " << dendl;
+
+  	  } catch (std::exception &e) {
+      	ldpp_dout(dpp, 0) << "ObjectDirectory::" << __func__ << "() ERROR: " << e.what() << dendl;
+    	return -EINVAL;
+  	  }
+	}
+	else 
+	{
+      ldpp_dout(dpp, 20) << "ObjectDirectory::" << __func__ << "(): Lock is acquired by another rgw, cannot release it. " << dendl;
+	  return -1;
+	}
+  } catch (std::exception &e) {
+    ldpp_dout(dpp, 0) << "ObjectDirectory::" << __func__ << "() ERROR: " << e.what() << dendl;
+    return -EINVAL;
+  }
+
+  return 0;
+
+}
+
 std::string BlockDirectory::build_index(CacheBlock* block) 
 {
   return block->cacheObj.bucketName + "_" + block->cacheObj.objName + "_" + std::to_string(block->blockID) + "_" + std::to_string(block->size);

@@ -203,6 +203,8 @@ class ObjectDirectory: public Directory {
     int zrank(const DoutPrefixProvider* dpp, CacheObj* object, const std::string& member, std::string& index, optional_yield y);
     //Return value is the incremented value, else return error
     int incr(const DoutPrefixProvider* dpp, CacheObj* object, optional_yield y);
+	int acquire_lock(const DoutPrefixProvider* dpp, CacheObj* object, optional_yield y);
+	int release_lock(const DoutPrefixProvider* dpp, CacheObj* object, optional_yield y);
 
   private:
     std::shared_ptr<connection> conn;
