@@ -18,7 +18,7 @@
 namespace lfdb = ceph::libfdb;
 
 using boost::redis::connection;
-using fdbase= lfdb::database;
+//using fdbase= lfdb::database;
 
 namespace rgw::d4n {
 
@@ -48,6 +48,29 @@ public:
 
 class FDBConnection : public DirectoryConnection {
 private:
+    lfdb::database_handle conn;
+
+public:
+    explicit FDBConnection(lfdb::database_handle c)
+      : conn(c)
+    {
+    }
+
+    std::shared_ptr<void> get_conn() override
+    {
+        return conn;
+    }
+
+    const lfdb::database_handle& get_fdb_conn() const
+    {
+        return conn;
+    }
+};
+
+
+/*
+class FDBConnection : public DirectoryConnection {
+private:
     std::shared_ptr<fdbase> conn;
 
 public:
@@ -61,5 +84,5 @@ public:
         return conn;
     }
 };
-
+*/
 } //namespace rgw::d4n
