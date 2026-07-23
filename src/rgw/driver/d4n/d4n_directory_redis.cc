@@ -1278,7 +1278,7 @@ int RedisBlockDirectory::get(const DoutPrefixProvider* dpp, std::vector<CacheBlo
 int RedisBlockDirectory::get(const DoutPrefixProvider* dpp, CacheBlock* block, optional_yield y) 
 {
   std::string key = build_index(block);
-  ldpp_dout(dpp, 10) << "BlockDirectory::" << __func__ << "(): index is: " << key << dendl;
+  ldpp_dout(dpp, 10) << "RedisBlockDirectory::" << __func__ << "(): index is: " << key << dendl;
 
   try {
     boost::system::error_code ec;
@@ -1289,19 +1289,19 @@ int RedisBlockDirectory::get(const DoutPrefixProvider* dpp, CacheBlock* block, o
     redis_exec_connection_pool(dpp, redis_pool, REDISconn, ec, req, resp, y);
 
     if (ec) {
-      ldpp_dout(dpp, 0) << "BlockDirectory::" << __func__ << "() ERROR: " << ec.what() << dendl;
+      ldpp_dout(dpp, 0) << "RedisBlockDirectory::" << __func__ << "() ERROR: " << ec.what() << dendl;
       return -ec.value();
     }
 
     const auto& result = std::get<0>(resp);
     if (!result.has_value()) {
-      ldpp_dout(dpp, 10) << "BlockDirectory::" << __func__ << "(): No values returned for key=" << key << dendl;
+      ldpp_dout(dpp, 10) << "RedisBlockDirectory::" << __func__ << "(): No values returned for key=" << key << dendl;
       return -ENOENT;
     }
 
     const auto& opt = result.value();
     if (!opt.has_value() || opt.value().empty()) {
-      ldpp_dout(dpp, 10) << "BlockDirectory::" << __func__ << "(): No values returned for key=" << key << dendl;
+      ldpp_dout(dpp, 10) << "RedisBlockDirectory::" << __func__ << "(): No values returned for key=" << key << dendl;
       return -ENOENT;
     }
     const std::map<std::string, std::string>& fieldMap = opt.value();
@@ -1335,11 +1335,11 @@ int RedisBlockDirectory::get(const DoutPrefixProvider* dpp, CacheBlock* block, o
     }
 
     if (found != attrsCount) {
-      ldpp_dout(dpp, 10) << "BlockDirectory::" << __func__ << "() ERROR: expected " << attrsCount << " attrs but found " << found << dendl;
+      ldpp_dout(dpp, 10) << "RedisBlockDirectory::" << __func__ << "() ERROR: expected " << attrsCount << " attrs but found " << found << dendl;
       return -EINVAL;
     }
   } catch (std::exception &e) {
-    ldpp_dout(dpp, 0) << "BlockDirectory::" << __func__ << "() ERROR: " << e.what() << dendl;
+    ldpp_dout(dpp, 0) << "RedisBlockDirectory::" << __func__ << "() ERROR: " << e.what() << dendl;
     return -EINVAL;
   }
 

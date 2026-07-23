@@ -579,17 +579,13 @@ int FDBBlockDirectory::exist_key(const DoutPrefixProvider* dpp, CacheBlock* bloc
   return lfdb::key_exists(FDBconn, key);
 }
 
-template<SeqContainer Container>
-int FDBBlockDirectory::set_values(const DoutPrefixProvider* dpp, CacheBlock& block, Container& fdbValues, optional_yield y)
+template<AssociativeContainer Container>
+int FDBBlockDirectory::set_values(const DoutPrefixProvider* dpp,
+                                  CacheBlock& block,
+                                  Container& fdbValues,
+                                  optional_yield y)
 {
-  std::string endpoint;
-
-  for (const auto& host : block.cacheObj.hostsList) {
-    if (endpoint.empty())
-      endpoint = host;
-    else
-      endpoint += "_" + host;
-  }
+  std::string hosts;
 
   auto add_value = [&](const std::string& key, const auto& value) {
     using ValueType = typename Container::value_type;
@@ -603,29 +599,71 @@ int FDBBlockDirectory::set_values(const DoutPrefixProvider* dpp, CacheBlock& blo
     }
 
     if constexpr (requires(Container c, ValueType v) {
-                  c.push_back(v);
-                }) {
+                    c.push_back(v);
+                  }) {
       fdbValues.push_back(ValueType{key, str_value});
     } else {
       fdbValues.insert(ValueType{key, str_value});
     }
   };
 
+  int ret = -1;
 
-  add_value("blockID", std::to_string(block.blockID));
+  add_value("blockID", block.blockID);
   add_value("version", block.version);
-  add_value("deleteMarker", block.deleteMarker ? "1" : "0");
-  add_value("size", std::to_string(block.size));
-  add_value("globalWeight", std::to_string(block.globalWeight));
+
+  if ((ret = check_bool(std::to_string(block.deleteMarker))) != -EINVAL) {
+    block.deleteMarker = (ret != 0);
+  } else {
+    ldpp_dout(dpp, 0)
+      << "BlockDirectory::" << __func__
+      << "() ERROR: Invalid bool value for delete marker"
+      << dendl;
+    return -EINVAL;
+  }
+
+  add_value("deleteMarker", block.deleteMarker);
+  add_value("size", block.size);
+  add_value("globalWeight", block.globalWeight);
   add_value("objName", block.cacheObj.objName);
   add_value("bucketName", block.cacheObj.bucketName);
   add_value("creationTime", block.cacheObj.creationTime);
-  add_value("dirty", block.cacheObj.dirty ? "1" : "0");
-  add_value("hosts", endpoint);
+
+  if ((ret = check_bool(std::to_string(block.cacheObj.dirty))) != -EINVAL) {
+    block.cacheObj.dirty = (ret != 0);
+  } else {
+    ldpp_dout(dpp, 0)
+      << "BlockDirectory::" << __func__
+      << "() ERROR: Invalid bool value"
+      << dendl;
+    return -EINVAL;
+  }
+
+  add_value("dirty", block.cacheObj.dirty);
+
+  hosts.clear();
+  for (const auto& host : block.cacheObj.hostsList) {
+    if (hosts.empty())
+      hosts = host + "_";
+    else
+      hosts += host + "_";
+  }
+
+  if (!hosts.empty())
+    hosts.pop_back();
+
+  add_value("hosts", hosts);
   add_value("etag", block.cacheObj.etag);
-  add_value("objSize", std::to_string(block.cacheObj.size));
+  add_value("objSize", block.cacheObj.size);
   add_value("userId", block.cacheObj.user_id);
   add_value("displayName", block.cacheObj.display_name);
+  add_value("acl", block.cacheObj.acl);
+
+  add_value("attrsCount", block.cacheObj.attrs.size());
+
+  for (const auto& [key, bl] : block.cacheObj.attrs) {
+    add_value("attr_" + key, bl.to_str());
+  }
 
   return 0;
 }
@@ -695,59 +733,118 @@ int FDBBlockDirectory::get(const DoutPrefixProvider* dpp, CacheBlock* block, opt
   block->cacheObj.user_id      = out_kvs.at("userId");
   block->cacheObj.display_name = out_kvs.at("displayName");
 
-  return 0;
-}
+  block->cacheObj.acl = out_kvs.at("acl");
 
-
-int FDBBlockDirectory::get(const DoutPrefixProvider* dpp, std::vector<CacheBlock>& blocks, optional_yield y)
-{
-  std::vector<std::map<std::string, std::string>> out_kvs(blocks.size());
-
-  // -------- FETCH PHASE --------
-  for (size_t i = 0; i < blocks.size(); i++) {
-    auto& block = blocks[i];
-
-    std::string key = build_index(&block);
-
-    if (!lfdb::get(FDBconn, key, out_kvs[i])) {
-      ldpp_dout(dpp, 0)
-          << "FDBBlockDirectory::" << __func__
-          << "() ERROR: get function returned false!"
-          << dendl;
-      return -ENOENT;
+  size_t attrsCount = std::stoull(out_kvs.at("attrsCount"));
+  size_t found = 0;
+  for (auto const& [key, value] : out_kvs) {
+    if (key.starts_with("attr_")) {
+      std::string attrKey = key.substr(5);
+      ceph::buffer::list bl;
+      bl.append(value);
+      block->cacheObj.attrs[attrKey] = std::move(bl);
+      if (++found == attrsCount) break;
     }
   }
 
-  // -------- POPULATE PHASE --------
-  for (size_t i = 0; i < blocks.size(); i++) {
-    auto& block = blocks[i];
-    auto& kvs = out_kvs[i];
-
-    block.blockID = std::stoull(kvs.at("blockID"));
-    block.version = kvs.at("version");
-    block.deleteMarker = (kvs.at("deleteMarker") == "1");
-    block.size = std::stoull(kvs.at("size"));
-    block.globalWeight = std::stoull(kvs.at("globalWeight"));
-
-    block.cacheObj.objName      = kvs.at("objName");
-    block.cacheObj.bucketName   = kvs.at("bucketName");
-    block.cacheObj.creationTime = kvs.at("creationTime");
-    block.cacheObj.dirty        = (kvs.at("dirty") == "1");
-
-    boost::split(
-        block.cacheObj.hostsList,
-        kvs.at("hosts"),
-        boost::is_any_of("_")
-    );
-
-    block.cacheObj.etag         = kvs.at("etag");
-    block.cacheObj.size         = std::stoull(kvs.at("objSize"));
-    block.cacheObj.user_id      = kvs.at("userId");
-    block.cacheObj.display_name = kvs.at("displayName");
+  if (found != attrsCount) {
+    ldpp_dout(dpp, 10) << "FDBBlockDirectory::" << __func__ << "() ERROR: expected " << attrsCount << " attrs but found " << found << dendl;
+    return -EINVAL;
   }
 
   return 0;
 }
+
+
+int FDBBlockDirectory::get(const DoutPrefixProvider* dpp,
+                           std::vector<CacheBlock>& blocks,
+                           optional_yield y)
+{
+  try {
+    std::vector<std::map<std::string, std::string>> out_kvs(blocks.size());
+
+    // -------- FETCH PHASE --------
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      auto& block = blocks[i];
+
+      std::string key = build_index(&block);
+
+      ldpp_dout(dpp, 10)
+        << "FDBBlockDirectory::" << __func__
+        << "(): index is: " << key
+        << dendl;
+
+      if (!lfdb::get(FDBconn, key, out_kvs[i])) {
+        ldpp_dout(dpp, 0)
+          << "FDBBlockDirectory::" << __func__
+          << "() ERROR: get function returned false!"
+          << dendl;
+        return -ENOENT;
+      }
+    }
+
+    // -------- POPULATE PHASE --------
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      auto& block = blocks[i];
+      auto& kvs = out_kvs[i];
+
+      block.blockID       = std::stoull(kvs.at("blockID"));
+      block.version       = kvs.at("version");
+      block.deleteMarker  = (std::stoi(kvs.at("deleteMarker")) != 0);
+      block.size          = std::stoull(kvs.at("size"));
+      block.globalWeight  = std::stoull(kvs.at("globalWeight"));
+
+      block.cacheObj.objName      = kvs.at("objName");
+      block.cacheObj.bucketName   = kvs.at("bucketName");
+      block.cacheObj.creationTime = kvs.at("creationTime");
+      block.cacheObj.dirty        = (std::stoi(kvs.at("dirty")) != 0);
+
+      block.cacheObj.hostsList.clear();
+      boost::split(block.cacheObj.hostsList,
+                   kvs.at("hosts"),
+                   boost::is_any_of("_"));
+
+      block.cacheObj.etag         = kvs.at("etag");
+      block.cacheObj.size         = std::stoull(kvs.at("objSize"));
+      block.cacheObj.user_id      = kvs.at("userId");
+      block.cacheObj.display_name = kvs.at("displayName");
+      block.cacheObj.acl          = kvs.at("acl");
+
+      // Match Redis implementation: read attrsCount even though it is unused.
+      if (auto it = kvs.find("attrsCount"); it != kvs.end()) {
+        [[maybe_unused]] size_t attrsCount = std::stoul(it->second);
+      }
+
+      block.cacheObj.attrs.clear();
+
+      // Restore attr_* entries.
+      for (const auto& [field, value] : kvs) {
+        if (field.rfind("attr_", 0) == 0) {
+          ceph::buffer::list bl;
+          bl.append(value);
+          block.cacheObj.attrs[field.substr(5)] = std::move(bl);
+        }
+      }
+    }
+
+  } catch (const lfdb::libfdb_exception& e) {
+    ldpp_dout(dpp, 0)
+      << "FDBBlockDirectory::" << __func__
+      << "() ERROR: " << e.what()
+      << dendl;
+    return -EINVAL;
+
+  } catch (const std::exception& e) {
+    ldpp_dout(dpp, 0)
+      << "FDBBlockDirectory::" << __func__
+      << "() ERROR: " << e.what()
+      << dendl;
+    return -EINVAL;
+  }
+
+  return 0;
+}
+
 
 
 //FIXME: shouldn't copyName reflect block's name instead of object name?

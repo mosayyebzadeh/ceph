@@ -95,13 +95,6 @@ class RedisObjectDirectory: public RedisDirectory, public ObjectDirectory {
 
 };
 
-template<typename C>
-concept AssociativeContainer = requires(C c, typename C::key_type k) {
-    typename C::key_type;
-    { c.find(k) } -> std::convertible_to<typename C::iterator>;
-    { c.count(k) } -> std::convertible_to<std::size_t>;
-};
-
 class RedisBlockDirectory: public RedisDirectory, public BlockDirectory {
   public:
     RedisBlockDirectory(std::shared_ptr<RedisConnection>& redis_conn): RedisDirectory(redis_conn) {}

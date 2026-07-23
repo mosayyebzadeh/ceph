@@ -123,12 +123,21 @@ class Pipeline {
 
 //END FIXME
 
+/*
 template<typename T>
 concept SeqContainer =
 requires(T& t, typename T::value_type v) {
     t.insert(v);
 } || requires(T& t, typename T::value_type v) {
     t.push_back(v);
+};
+*/
+
+template<typename C>
+concept AssociativeContainer = requires(C c, typename C::key_type k) {
+    typename C::key_type;
+    { c.find(k) } -> std::convertible_to<typename C::iterator>;
+    { c.count(k) } -> std::convertible_to<std::size_t>;
 };
 
 enum class ObjectFields { // Fields stored in object directory 
