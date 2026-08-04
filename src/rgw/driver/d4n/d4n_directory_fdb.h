@@ -39,6 +39,8 @@ namespace lfdb = ceph::libfdb;
 
 namespace rgw::d4n {
 
+constexpr size_t COMMIT_SIZE = 256;
+
 class FDBDirectory : virtual public Directory {
 public:
     // FoundationDB database handle

@@ -122,6 +122,74 @@ int FDBBucketDirectory::add_object(const DoutPrefixProvider* dpp, const std::str
   return fdb_add(dpp, bucket_id, 0, object_name, params, y);
 }
 
+
+//TODO: do we need batch set and get functions for bucket?
+int FDBBucketDirectory::set(const DoutPrefixProvider* dpp,
+                            const std::vector<CacheObject>& objs,
+                            size_t count,
+                            optional_yield y)
+try
+{
+  return lfdb::make_transactor(FDBconn)([&](auto& tr) {
+
+    size_t limit = std::min(count, objs.size());
+
+    for (size_t i = 0; i < limit; ++i) {
+      const auto& obj = objs[i];
+
+      std::string key = get_object_subspace(obj.bucketId) + obj.objName;
+
+      lfdb::set(tr, key, obj);
+    }
+
+    return 0;
+  });
+
+} catch (const lfdb::libfdb_exception& e) {
+  ldpp_dout_fmt(dpp, 0,
+      "FDBBucketDirectory::{}() ERROR: {}",
+      __func__, e.what());
+
+  return -EINVAL;
+}
+
+int FDBBucketDirectory::get(const DoutPrefixProvider* dpp,
+                            std::vector<CacheObject>& objs,
+                            size_t count,
+                            optional_yield y)
+try
+{
+  return lfdb::make_transactor(FDBconn)([&](auto& tr) {
+
+    const size_t n = std::min(count, objs.size());
+
+    for (size_t i = 0; i < n; ++i) {
+      CacheObject& obj = objs[i];
+
+      const std::string key =
+          get_object_subspace(obj.bucketId) + obj.objName;
+
+      if (!lfdb::get(tr, key, obj)) {
+        ldpp_dout(dpp, 0)
+            << "FDBBucketDirectory::" << __func__
+            << "() object not found: " << key
+            << dendl;
+        return -ENOENT;
+      }
+    }
+
+    return 0;
+  });
+
+} catch (const lfdb::libfdb_exception& e) {
+  ldpp_dout(dpp, 0)
+      << "FDBBucketDirectory::" << __func__
+      << "() ERROR: " << e.what()
+      << dendl;
+  return -EINVAL;
+}
+
+
 int FDBBucketDirectory::remove_object(const DoutPrefixProvider* dpp, const std::string& bucket_id, const std::string& object_name, optional_yield y)
 {
   return fdb_rem(dpp, bucket_id, object_name, y);
@@ -853,7 +921,7 @@ int FDBBlockDirectory::set(const DoutPrefixProvider* dpp, CacheBlock* block, opt
   return 0;
 }
 
-
+/*
 int FDBBlockDirectory::set(const DoutPrefixProvider* dpp, std::vector<CacheBlock>& blocks, optional_yield y)
 {
   for (auto block : blocks) {
@@ -872,6 +940,70 @@ int FDBBlockDirectory::set(const DoutPrefixProvider* dpp, std::vector<CacheBlock
 
   return 0;
 }
+*/
+
+int FDBBlockDirectory::set(const DoutPrefixProvider* dpp,
+                           std::vector<CacheBlock>& blocks,
+                           optional_yield y)
+try
+{
+  struct PendingWrite {
+    std::string key;
+    std::map<std::string, std::string> values;
+  };
+
+  std::vector<PendingWrite> writes;
+  writes.reserve(blocks.size());
+
+  // ---------- Preparation phase (outside transactions) ----------
+  for (auto& block : blocks) {
+    PendingWrite w;
+
+    w.key = build_index(&block);
+
+    ldpp_dout(dpp, 20)
+        << "FDBBlockDirectory::" << __func__
+        << "(): index is: " << w.key
+        << dendl;
+
+    int ret = set_values(dpp, block, w.values, y);
+    if (ret < 0) {
+      return ret;
+    }
+
+    writes.emplace_back(std::move(w));
+  }
+
+  // ---------- Commit phase (chunked transactions) ----------
+
+  for (size_t start = 0; start < writes.size(); start += COMMIT_SIZE) {
+    const size_t end = std::min(start + COMMIT_SIZE, writes.size());
+
+    int ret = lfdb::make_transactor(FDBconn)([&](auto& tr) {
+
+      for (size_t i = start; i < end; ++i) {
+        lfdb::set(tr, writes[i].key, writes[i].values);
+      }
+
+      return 0;
+    });
+
+    if (ret < 0) {
+      return ret;
+    }
+  }
+
+  return 0;
+
+} catch (const lfdb::libfdb_exception& e) {
+  ldpp_dout(dpp, 0)
+      << "FDBBlockDirectory::" << __func__
+      << "() ERROR: " << e.what()
+      << dendl;
+  return -EINVAL;
+}
+
+
 
 int FDBBlockDirectory::get(const DoutPrefixProvider* dpp, CacheBlock* block, optional_yield y) 
 {
@@ -924,7 +1056,7 @@ int FDBBlockDirectory::get(const DoutPrefixProvider* dpp, CacheBlock* block, opt
   return 0;
 }
 
-
+/*
 int FDBBlockDirectory::get(const DoutPrefixProvider* dpp,
                            std::vector<CacheBlock>& blocks,
                            optional_yield y)
@@ -1013,8 +1145,108 @@ int FDBBlockDirectory::get(const DoutPrefixProvider* dpp,
 
   return 0;
 }
+*/
 
 
+int FDBBlockDirectory::get(const DoutPrefixProvider* dpp,
+                           std::vector<CacheBlock>& blocks,
+                           optional_yield y)
+{
+  try {
+    std::vector<std::map<std::string, std::string>> out_kvs(blocks.size());
+
+
+    // ---------- FETCH PHASE (chunked transactions) ----------
+    for (size_t start = 0; start < blocks.size(); start += COMMIT_SIZE) {
+      const size_t end = std::min(start + COMMIT_SIZE, blocks.size());
+
+      int ret = lfdb::make_transactor(FDBconn)([&](auto& tr) {
+
+        for (size_t i = start; i < end; ++i) {
+          std::string key = build_index(&blocks[i]);
+
+          ldpp_dout(dpp, 10)
+              << "FDBBlockDirectory::" << __func__
+              << "(): index is: " << key
+              << dendl;
+
+          if (!lfdb::get(tr, key, out_kvs[i])) {
+            ldpp_dout(dpp, 0)
+                << "FDBBlockDirectory::" << __func__
+                << "() ERROR: get function returned false!"
+                << dendl;
+            return -ENOENT;
+          }
+        }
+
+        return 0;
+      });
+
+      if (ret < 0) {
+        return ret;
+      }
+    }
+
+    // ---------- POPULATE PHASE (outside transactions) ----------
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      auto& block = blocks[i];
+      auto& kvs = out_kvs[i];
+
+      block.blockID       = std::stoull(kvs.at("blockID"));
+      block.version       = kvs.at("version");
+      block.deleteMarker  = (std::stoi(kvs.at("deleteMarker")) != 0);
+      block.size          = std::stoull(kvs.at("size"));
+      block.globalWeight  = std::stoull(kvs.at("globalWeight"));
+
+      block.cacheObj.objName      = kvs.at("objName");
+      block.cacheObj.bucketName   = kvs.at("bucketName");
+      block.cacheObj.creationTime = kvs.at("creationTime");
+      block.cacheObj.dirty        = (std::stoi(kvs.at("dirty")) != 0);
+
+      block.cacheObj.hostsList.clear();
+      boost::split(block.cacheObj.hostsList,
+                   kvs.at("hosts"),
+                   boost::is_any_of("_"));
+
+      block.cacheObj.etag         = kvs.at("etag");
+      block.cacheObj.size         = std::stoull(kvs.at("objSize"));
+      block.cacheObj.user_id      = kvs.at("userId");
+      block.cacheObj.display_name = kvs.at("displayName");
+      block.cacheObj.acl          = kvs.at("acl");
+
+      // Match Redis implementation.
+      if (auto it = kvs.find("attrsCount"); it != kvs.end()) {
+        [[maybe_unused]] size_t attrsCount = std::stoul(it->second);
+      }
+
+      block.cacheObj.attrs.clear();
+
+      for (const auto& [field, value] : kvs) {
+        if (field.rfind("attr_", 0) == 0) {
+          ceph::buffer::list bl;
+          bl.append(value);
+          block.cacheObj.attrs[field.substr(5)] = std::move(bl);
+        }
+      }
+    }
+
+  } catch (const lfdb::libfdb_exception& e) {
+    ldpp_dout(dpp, 0)
+        << "FDBBlockDirectory::" << __func__
+        << "() ERROR: " << e.what()
+        << dendl;
+    return -EINVAL;
+
+  } catch (const std::exception& e) {
+    ldpp_dout(dpp, 0)
+        << "FDBBlockDirectory::" << __func__
+        << "() ERROR: " << e.what()
+        << dendl;
+    return -EINVAL;
+  }
+
+  return 0;
+}
 
 //FIXME: shouldn't copyName reflect block's name instead of object name?
 //the same for redis class.
