@@ -1668,6 +1668,20 @@ int LFUDAPolicy::do_writeback(const DoutPrefixProvider* dpp, LFUDAObjEntry* e, o
             if (blk_op_ret < 0 || null_op_ret < 0) {
               ldpp_dout(dpp, 0) << __func__ << "(): Failed to update dirty flag for latest entry/null entry in block directory" << dendl;
             }
+            // also update version-specific head block "_:<d4n_version>_<name>"
+            rgw::d4n::CacheBlock ver_block{
+              .cacheObj = {
+                .objName = rgw::sal::get_versioned_head_block_name(e->version, c_obj->get_name()),
+                .bucketName = c_obj->get_bucket()->get_bucket_id(),
+              },
+              .blockID = 0, .size = 0,
+            };
+            if (blockDir.get(dpp, y, &ver_block, std::nullopt) == 0 && ver_block.version == e->version) {
+              ver_block.cacheObj.dirty = false;
+              if (blockDir.set(dpp, y, &ver_block, std::nullopt) < 0) {
+                ldpp_dout(dpp, 0) << __func__ << "(): Failed to update dirty flag for version-specific head block" << dendl;
+              }
+            }
           }
         }
       } //end-if (block.version == entry->version)
