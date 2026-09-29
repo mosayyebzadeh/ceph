@@ -1159,7 +1159,6 @@ int D4NFilterObject::load_obj_state(const DoutPrefixProvider *dpp, optional_yiel
   return next->load_obj_state(dpp, y, follow_olh);
 }
 
-
 int D4NFilterObject::set_obj_attrs(const DoutPrefixProvider* dpp, Attrs* setattrs,
                                    Attrs* delattrs, optional_yield y, uint32_t flags)
 {
@@ -1208,22 +1207,11 @@ int D4NFilterObject::set_obj_attrs(const DoutPrefixProvider* dpp, Attrs* setattr
   } else {
     if (block.deleteMarker || cache_request) {
       ldpp_dout(dpp, 10) << "D4NFilterObject::" << __func__ << "(): object " << this->get_name() << " does not exist." << dendl;
-
-      if (int r = txn->commit(dpp, y); r < 0) {
-        ldpp_dout(dpp, 10) << "D4NFilterObject::" << __func__ << "(): Failed to commit transaction with error: " << r << dendl;
-        return r;
-      }
-
       return -ENOENT;
     }
 
     auto ret = next->set_obj_attrs(dpp, setattrs, delattrs, y, flags);
     if (ret < 0) {
-      if (int r = txn->commit(dpp, y); r < 0) {
-        ldpp_dout(dpp, 10) << "D4NFilterObject::" << __func__ << "(): Failed to commit transaction with error: " << r << dendl;
-        return r;
-      }
-
       ldpp_dout(dpp, 0) << "D4NFilterObject::" << __func__ << "(): set_obj_attrs method of backend store failed with ret: " << ret << dendl;
       return ret;
     }
@@ -1236,7 +1224,6 @@ int D4NFilterObject::set_obj_attrs(const DoutPrefixProvider* dpp, Attrs* setattr
 
   return 0;
 }
-
 
 int D4NFilterObject::get_obj_attrs_from_cache(const DoutPrefixProvider* dpp, optional_yield y)
 {
@@ -1684,8 +1671,7 @@ int D4NFilterObject::set_head_block_dir_entry(const DoutPrefixProvider* dpp, opt
         }
 
         rgw::d4n::ObjectDirectory* objDir = this->driver->get_obj_dir();
-	//FIXME: should this operation be added to the explicit transaction txn?
-        if (int r = objDir->add_version(dpp, y, this->get_bucket()->get_bucket_id(), objName, object_version, mtime, ver_params, std::nullopt); r < 0) {
+        if (int r = objDir->add_version(dpp, y, this->get_bucket()->get_bucket_id(), objName, object_version, mtime, ver_params, std::ref(*txn)); r < 0) {
             ldpp_dout(dpp, 10) << "D4NFilterObject::" << __func__ << "(): Failed to add version to ordered set with error: " << r << dendl;
             return r;
         }
@@ -1704,8 +1690,7 @@ int D4NFilterObject::set_head_block_dir_entry(const DoutPrefixProvider* dpp, opt
         }
 
         rgw::d4n::BucketDirectory* bucketDir = this->driver->get_bucket_dir();
-	//FIXME: should this operation be added to the explicit transaction txn?
-        if (int r = bucketDir->add_object(dpp, y, this->get_bucket()->get_bucket_id(), this->get_name(), bucket_params, std::nullopt); r < 0) {
+        if (int r = bucketDir->add_object(dpp, y, this->get_bucket()->get_bucket_id(), this->get_name(), bucket_params, std::ref(*txn)); r < 0) {
             ldpp_dout(dpp, 10) << "D4NFilterObject::" << __func__ << "(): Failed to add object to ordered set with error: " << r << dendl;
             return r;
         }
@@ -2478,6 +2463,111 @@ int D4NFilterObject::D4NFilterReadOp::flush(const DoutPrefixProvider* dpp, rgw::
         rgw::sal::Attrs attrs;
         D4NFilterObject* d4n_dest_object = dynamic_cast<D4NFilterObject*>(source->dest_object);
         bufferlist bl_val;
+        std::unique_ptr<rgw::d4n::Transaction> txn;
+
+        if (is_remote) {
+          txn = source->driver->get_txn_factory()->create_transaction(dpp);
+          dest_version = source->get_object_version();
+          dest_block.version = dest_version;
+          dest_block.cacheObj.objName = source->get_name();
+          dest_block.cacheObj.bucketName = source->get_bucket()->get_bucket_id();
+          key = get_key_in_cache(get_cache_block_prefix(source, dest_version), std::to_string(ofs), std::to_string(len));
+
+          if (auto ret = source->driver->get_block_dir()->get(dpp, y, &dest_block, std::ref(*txn)); ret < 0) {
+            ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " BlockDirectory get failed with ret: " << ret << dendl;
+	    //should we return from here?
+          }
+
+          //if a new version has been written, then do not cache old data locally
+          if (dest_version != dest_block.version) {
+            write_to_local_cache = false;
+          }
+
+          // TODO: Add DIRTY attr as well
+          if (source->have_instance()) {
+            bl_val.append(source->get_instance());
+            attrs[RGW_CACHE_ATTR_VERSION_ID] = std::move(bl_val);
+          }
+
+          bl_val.clear();
+          bl_val.append(source->get_key().ns);
+          attrs[RGW_CACHE_ATTR_OBJECT_NS] = std::move(bl_val);
+        } else {
+          // for copy object
+          bl_val.append("1");
+          attrs[RGW_CACHE_ATTR_DIRTY] = std::move(bl_val);
+          bl_val.clear();
+
+          if (d4n_dest_object->have_instance()) {
+            bufferlist bl_val;
+            bl_val.append(d4n_dest_object->get_instance());
+            attrs[RGW_CACHE_ATTR_VERSION_ID] = std::move(bl_val);
+          }
+
+          bl_val.append(d4n_dest_object->get_key().ns);
+          attrs[RGW_CACHE_ATTR_OBJECT_NS] = std::move(bl_val);
+          dest_version = d4n_dest_object->get_object_version();
+          dest_block.version = dest_version;
+          dest_block.cacheObj.objName = source->dest_object->get_name();
+          dest_block.cacheObj.bucketName = source->dest_bucket->get_bucket_id();
+          dest_block.cacheObj.dirty = true;
+          key = get_key_in_cache(get_cache_block_prefix(source->dest_object, dest_version), std::to_string(ofs), std::to_string(len));
+          dest_block.cacheObj.hostsList.insert(dpp->get_cct()->_conf->rgw_d4n_local_rgw_address);
+        }
+
+        if (write_to_local_cache) {
+          ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " object version in update method is: " << dest_version << dendl;
+          int ret;
+
+          if (is_remote) {
+            ret = source->write_if_space_available(dpp, key, bl, bl.length(), attrs, ofs, dest_version, true, std::get<rgw_user>(source->get_bucket()->get_owner()), source->get_bucket()->get_name(), rgw::d4n::RefCount::NOOP, y, &dest_block);
+          } else {
+            ret = source->write_if_space_available(dpp, key, bl, bl.length(), attrs, ofs, dest_version, true, std::get<rgw_user>(source->get_bucket()->get_owner()), source->get_bucket()->get_name(), rgw::d4n::RefCount::NOOP, y, nullptr);
+          }
+
+          if (ret == 0) {
+            dest_block.cacheObj.hostsList.insert(dpp->get_cct()->_conf->rgw_d4n_local_rgw_address);
+
+            if (is_remote) {
+              if (ret = source->driver->get_block_dir()->set(dpp, y, &dest_block, std::ref(*txn)); ret < 0) {
+                ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " BlockDirectory set failed with ret: " << ret << dendl;
+              }
+            } else {
+              if (ret = source->driver->get_block_dir()->set(dpp, y, &dest_block, std::nullopt); ret < 0) {
+                ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " BlockDirectory set failed with ret: " << ret << dendl;
+              }
+            }
+          } else {
+            ldpp_dout(dpp, 0) << "D4NFilterObject::" << __func__ << "(): Write failed for key, ret=" << ret << dendl;
+          }
+
+          if (is_remote) {
+            if (int r = txn->commit(dpp, y); r < 0) {
+              ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " BlockDirectory transaction commit failed with ret: " << r << dendl;
+              if (ret == 0) {
+                ret = r;
+              }
+            }
+          }
+        } else if (is_remote) {
+          if (int r = txn->commit(dpp, y); r < 0) {
+            ldpp_dout(dpp, 20) << "D4NFilterObject::" << __func__ << " BlockDirectory transaction commit failed with ret: " << r << dendl;
+          }
+        }
+      }
+
+      /*
+      if ((source->dest_object && source->dest_bucket) || is_remote) {
+        std::string dest_version;
+        rgw::d4n::CacheBlock dest_block;
+        dest_block.blockID = ofs;
+        dest_block.size = len;
+        dest_block.version = dest_version;
+        std::string key;
+        bool write_to_local_cache{true};
+        rgw::sal::Attrs attrs;
+        D4NFilterObject* d4n_dest_object = dynamic_cast<D4NFilterObject*>(source->dest_object);
+        bufferlist bl_val;
         if (is_remote) {
           dest_version = source->get_object_version();
           dest_block.version = dest_version;
@@ -2542,7 +2632,9 @@ int D4NFilterObject::D4NFilterReadOp::flush(const DoutPrefixProvider* dpp, rgw::
 			ldpp_dout(dpp, 0) << "D4NFilterObject::" << __func__ << "(): Write failed for key, ret=" << ret << dendl;
           }
         }
+	
       }
+      */
     } else {
       ldpp_dout(dpp, 0) << "D4NFilterObject::" << __func__ << " offset not found: " << cur_ofs << dendl;
     }
